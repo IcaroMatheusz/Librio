@@ -2,6 +2,12 @@ import { getSupabaseClient } from "../lib/supabase";
 import type { Book, BookFileType } from "../types/database";
 import { prepareManualBookCover } from "./coverPreviewService";
 import { getUserStorage } from "./storageService";
+import {
+  bookFileCacheKey,
+  deleteCachedBookFile,
+  readCachedBookFile,
+  writeCachedBookFile,
+} from "./bookFileCache";
 
 export const BOOKS_BUCKET = "books";
 export const COVERARTS_BUCKET = "coverarts";
@@ -296,6 +302,23 @@ export async function deleteBook(book: Book): Promise<string | null> {
       .join("; ")}`;
   }
 
+  let cacheWarning: string | null = null;
+  try {
+    await deleteCachedBookFile(
+      bookFileCacheKey(
+        book.user_id,
+        book.file_path,
+        book.file_size,
+        book.updated_at,
+      ),
+    );
+  } catch (caughtError) {
+    cacheWarning =
+      caughtError instanceof Error
+        ? caughtError.message
+        : "Não foi possível remover a cópia local do arquivo.";
+  }
+
   const { error: storageError } = await client
     .from("user_storage")
     .update({
@@ -306,15 +329,27 @@ export async function deleteBook(book: Book): Promise<string | null> {
     .single();
 
   if (storageError) {
-    return `A obra foi excluída, mas não foi possível atualizar o espaço utilizado: ${storageError.message}`;
+    return `A obra foi excluída, mas não foi possível atualizar o espaço utilizado: ${storageError.message}${
+      cacheWarning ? ` ${cacheWarning}` : ""
+    }`;
   }
-  return null;
+  return cacheWarning;
 }
 
 export interface BookDownloadProgress {
   loadedBytes: number;
   totalBytes: number;
   percent: number;
+}
+
+export type BookFileCacheStatus =
+  | { type: "hit" }
+  | { type: "download" }
+  | { type: "warning"; message: string };
+
+export interface BookFileOptions {
+  cacheVersion?: string;
+  onCacheStatus?: (status: BookFileCacheStatus) => void;
 }
 
 export type DownloadProgressCallback = (
@@ -325,8 +360,51 @@ export async function getBookFile(
   filePath: string,
   expectedBytes: number,
   onProgress: DownloadProgressCallback,
+  options: BookFileOptions = {},
 ): Promise<Blob> {
   const client = await getSupabaseClient();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) {
+    throw new Error(`Não foi possível verificar sua sessão para abrir a obra: ${userError.message}`);
+  }
+  if (!userData.user) {
+    throw new Error("Sua sessão expirou. Entre novamente para abrir esta obra.");
+  }
+
+  const cacheKey = bookFileCacheKey(
+    userData.user.id,
+    filePath,
+    expectedBytes,
+    options.cacheVersion,
+  );
+  try {
+    const cachedFile = await readCachedBookFile(cacheKey);
+    if (cachedFile && cachedFile.size === expectedBytes) {
+      options.onCacheStatus?.({ type: "hit" });
+      onProgress({
+        loadedBytes: cachedFile.size,
+        totalBytes: cachedFile.size,
+        percent: 100,
+      });
+      return cachedFile;
+    }
+    if (cachedFile) {
+      options.onCacheStatus?.({
+        type: "warning",
+        message: "A cópia local estava desatualizada e será baixada novamente.",
+      });
+    }
+  } catch (cacheError) {
+    options.onCacheStatus?.({
+      type: "warning",
+      message:
+        cacheError instanceof Error
+          ? cacheError.message
+          : "Não foi possível consultar o cache local.",
+    });
+  }
+
+  options.onCacheStatus?.({ type: "download" });
   const { data, error } = await client.storage
     .from(BOOKS_BUCKET)
     .createSignedUrl(filePath, 60);
@@ -349,12 +427,25 @@ export async function getBookFile(
     });
     request.addEventListener("load", () => {
       if (request.status >= 200 && request.status < 300 && request.response instanceof Blob) {
-        onProgress({
-          loadedBytes: request.response.size,
-          totalBytes: request.response.size || expectedBytes,
-          percent: 100,
-        });
-        resolve(request.response);
+        const downloadedFile = request.response;
+        void writeCachedBookFile(cacheKey, downloadedFile)
+          .catch((cacheError: unknown) => {
+            options.onCacheStatus?.({
+              type: "warning",
+              message:
+                cacheError instanceof Error
+                  ? cacheError.message
+                  : "Não foi possível guardar a obra no cache local.",
+            });
+          })
+          .finally(() => {
+            onProgress({
+              loadedBytes: downloadedFile.size,
+              totalBytes: downloadedFile.size || expectedBytes,
+              percent: 100,
+            });
+            resolve(downloadedFile);
+          });
         return;
       }
       reject(

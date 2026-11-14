@@ -166,20 +166,19 @@ function isOutlineDocument(root: Element, headingText: string): boolean {
   if (links.length < 3) return false;
 
   const normalizedHeading = headingText.replace(/\s+/g, " ").trim();
-  if (
-    /^(document outline|table of contents|contents|sumário|índice)$/i.test(
-      normalizedHeading,
-    )
-  ) {
-    return true;
-  }
-
   const text = (root.textContent ?? "").replace(/\s+/g, " ").trim();
-  if (!/^document\s*outline(?:\s*ch\s*\d|\s|$)/i.test(text)) return false;
+  const hasOutlineLabel =
+    /^document\s*outline\b/i.test(normalizedHeading) ||
+    /^document\s*outline(?:\s*ch\s*\d|\s|$)/i.test(text);
+  if (!hasOutlineLabel) return false;
 
   const originalSizeEntries = text.match(/\[\s*original\s+size\s*\]/gi) ?? [];
   const chapterEntries = text.match(/\bch\s*\d+/gi) ?? [];
-  return originalSizeEntries.length >= 3 || chapterEntries.length >= 3;
+  return (
+    originalSizeEntries.length >= 3 ||
+    chapterEntries.length >= 3 ||
+    /^document\s*outline$/i.test(normalizedHeading)
+  );
 }
 
 function getImageSource(element: Element): string | null {

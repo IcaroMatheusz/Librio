@@ -15,10 +15,12 @@ import {
 
 import { ReaderLoading } from "./ReaderLoading";
 import { usePinchZoom } from "../../hooks/usePinchZoom";
+import { useReaderTheme } from "../../hooks/useReaderTheme";
 import {
   ReaderModeToggle,
   type ReadingMode,
 } from "./ReaderModeToggle";
+import { ReaderThemeToggle } from "./ReaderThemeToggle";
 import {
   extractComicPages,
   type ArchivePage,
@@ -62,6 +64,7 @@ export function ComicReader({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
   const pinchZoom = usePinchZoom(zoom, setZoom);
+  const { theme, setTheme } = useReaderTheme();
 
   useEffect(() => {
     function syncFullscreen() {
@@ -309,15 +312,26 @@ export function ComicReader({
     <section
       ref={readerRef}
       aria-label="Leitor de quadrinhos"
-      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25 ${
+      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl shadow-black/25 ${
+        theme === "night"
+          ? "border-white/10 bg-[#151827]"
+          : "border-stone-300 bg-[#fffaf0]"
+      } ${
         isFullscreen
           ? "fixed inset-0 z-50 h-[100dvh] min-h-0 w-screen rounded-none border-0"
           : ""
       }`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-2 py-2 backdrop-blur sm:px-4">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 border-b px-2 py-2 backdrop-blur sm:px-4 ${
+          theme === "night"
+            ? "border-white/[0.08] bg-[#202435]/90"
+            : "border-stone-300 bg-[#f2eadc]/95"
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-end gap-2">
           <ReaderModeToggle mode={readingMode} onChange={setReadingMode} />
+          <ReaderThemeToggle theme={theme} onChange={setTheme} />
           <div className="flex items-center gap-1">
           <button
             type="button"
@@ -395,7 +409,13 @@ export function ComicReader({
         </div>
       </div>
 
-      <figure className="grid min-h-0 flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4">
+      <figure
+        className={`grid min-h-0 flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-hidden p-2 sm:gap-3 sm:p-4 ${
+          theme === "night"
+            ? "bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)]"
+            : "bg-stone-200"
+        }`}
+      >
         {readingMode === "page" && (
         <button
           type="button"
@@ -439,6 +459,10 @@ export function ComicReader({
                   style={{
                     zoom,
                     transform: `scale(${pinchZoom.previewScale})`,
+                    filter:
+                      theme === "night"
+                        ? "invert(0.9) hue-rotate(180deg)"
+                        : undefined,
                   }}
                 />
               </div>
@@ -456,6 +480,8 @@ export function ComicReader({
               style={{
                 zoom,
                 transform: `scale(${pinchZoom.previewScale})`,
+                filter:
+                  theme === "night" ? "invert(0.9) hue-rotate(180deg)" : undefined,
                 maxHeight:
                   viewportSize.height > 0
                     ? `${viewportSize.height}px`
@@ -481,7 +507,13 @@ export function ComicReader({
         )}
       </figure>
 
-      <footer className="flex min-h-9 items-center justify-end border-t border-white/[0.08] bg-[#202435]/70 px-4 text-xs text-slate-400">
+      <footer
+        className={`flex min-h-9 items-center justify-end border-t px-4 text-xs ${
+          theme === "night"
+            ? "border-white/[0.08] bg-[#202435]/70 text-slate-400"
+            : "border-stone-300 bg-[#f2eadc] text-stone-600"
+        }`}
+      >
         {saveStatus === "saving" && <span role="status">Sincronizando progresso…</span>}
         {saveStatus === "saved" && <span role="status">Progresso sincronizado</span>}
         {saveStatus === "error" && (

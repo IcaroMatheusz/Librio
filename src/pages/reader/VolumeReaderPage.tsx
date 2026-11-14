@@ -3,9 +3,11 @@ import { ArrowLeft, ArrowRight, BookOpen, Layers3 } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
 import { PdfReader } from "../../components/reader/PdfReader";
+import { ChapterSelector } from "../../components/reader/ChapterSelector";
 import { ReaderLoading } from "../../components/reader/ReaderLoading";
 import {
   getBookFile,
+  type BookFileCacheStatus,
   type BookDownloadProgress,
 } from "../../services/booksService";
 import {
@@ -40,6 +42,7 @@ export default function VolumeReaderPage() {
   const [loadingChapter, setLoadingChapter] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadDetail, setLoadDetail] = useState("Carregando os dados do volume...");
+  const [cacheWarning, setCacheWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -90,6 +93,7 @@ export default function VolumeReaderPage() {
       setFile(null);
       setLoadProgress(0);
       setLoadDetail(`Baixando capítulo ${chapterIndex + 1} de ${volume?.chapters.length}…`);
+      setCacheWarning(null);
       setError(null);
       try {
         const chapterFile = await getBookFile(
@@ -101,6 +105,17 @@ export default function VolumeReaderPage() {
             setLoadDetail(
               `Baixando capítulo: ${progress.percent}%`,
             );
+          },
+          {
+            cacheVersion: activeChapter.book.updated_at,
+            onCacheStatus: (status: BookFileCacheStatus) => {
+              if (!active) return;
+              if (status.type === "hit") {
+                setLoadDetail("Capítulo aberto do cache local.");
+              } else if (status.type === "warning") {
+                setCacheWarning(status.message);
+              }
+            },
           },
         );
         if (active) setFile(chapterFile);
@@ -181,22 +196,17 @@ export default function VolumeReaderPage() {
               >
                 <ArrowLeft aria-hidden="true" size={17} />
               </button>
-              <label className="sr-only" htmlFor="volume-chapter">
-                Escolher capítulo
-              </label>
-              <select
+              <ChapterSelector
                 id="volume-chapter"
-                value={chapterIndex}
+                label="Escolher capítulo"
+                value={String(chapterIndex)}
                 disabled={loading}
-                onChange={(event) => selectChapter(Number(event.target.value))}
-                className="max-w-40 rounded-lg border border-white/10 bg-[#171A27] px-2 py-2 text-xs text-slate-200 focus-visible:outline-2 focus-visible:outline-violet-200 sm:max-w-64 sm:text-sm"
-              >
-                {volume.chapters.map((chapter, index) => (
-                  <option key={chapter.bookId} value={index}>
-                    {index + 1}. {chapter.title}
-                  </option>
-                ))}
-              </select>
+                options={volume.chapters.map((chapter, index) => ({
+                  value: String(index),
+                  label: `${index + 1}. ${chapter.title}`,
+                }))}
+                onChange={(value) => selectChapter(Number(value))}
+              />
               <button
                 type="button"
                 onClick={() => changeChapter(1)}
@@ -215,6 +225,14 @@ export default function VolumeReaderPage() {
         aria-label="Conteúdo do volume"
         className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-2 py-3 sm:px-6 sm:py-5 lg:px-8"
       >
+        {cacheWarning && !loading && (
+          <p
+            role="status"
+            className="mb-3 rounded-xl border border-amber-200/15 bg-amber-200/[0.05] px-4 py-2 text-xs leading-5 text-amber-100"
+          >
+            {cacheWarning}
+          </p>
+        )}
         {loading ? (
           <ReaderLoading
             title={loadingVolume ? "Abrindo seu volume" : "Abrindo capítulo"}

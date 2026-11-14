@@ -6,7 +6,11 @@ import { ComicReader } from "../../components/reader/ComicReader";
 import { EpubReader } from "../../components/reader/EpubReader";
 import { PdfReader } from "../../components/reader/PdfReader";
 import { ReaderLoading } from "../../components/reader/ReaderLoading";
-import { getBookById, getBookFile } from "../../services/booksService";
+import {
+  getBookById,
+  getBookFile,
+  type BookFileCacheStatus,
+} from "../../services/booksService";
 import {
   getBookProgress,
   saveBookProgress,
@@ -38,6 +42,7 @@ export default function ReaderPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadDetail, setLoadDetail] = useState("Conectando à sua biblioteca segura…");
+  const [cacheWarning, setCacheWarning] = useState<string | null>(null);
 
   const saveProgress = useCallback(
     async (progress: number) => {
@@ -55,6 +60,7 @@ export default function ReaderPage() {
       setError(null);
       setDocument(null);
       setLoadProgress(0);
+      setCacheWarning(null);
       setLoadDetail("Conectando à sua biblioteca segura…");
       try {
         if (!bookId) throw new Error("O endereço desta obra é inválido.");
@@ -65,13 +71,28 @@ export default function ReaderPage() {
 
         setLoadDetail(`Baixando arquivo ${book.file_type.toUpperCase()}…`);
         const [file, progress] = await Promise.all([
-          getBookFile(book.file_path, book.file_size, (progress) => {
-            if (!active) return;
-            setLoadProgress(progress.percent);
-            setLoadDetail(
-              `Baixando arquivo: ${formatBytes(progress.loadedBytes)} de ${formatBytes(progress.totalBytes)}.`,
-            );
-          }),
+          getBookFile(
+            book.file_path,
+            book.file_size,
+            (progress) => {
+              if (!active) return;
+              setLoadProgress(progress.percent);
+              setLoadDetail(
+                `Baixando arquivo: ${formatBytes(progress.loadedBytes)} de ${formatBytes(progress.totalBytes)}.`,
+              );
+            },
+            {
+              cacheVersion: book.updated_at,
+              onCacheStatus: (status: BookFileCacheStatus) => {
+                if (!active) return;
+                if (status.type === "hit") {
+                  setLoadDetail("Arquivo aberto do cache local.");
+                } else if (status.type === "warning") {
+                  setCacheWarning(status.message);
+                }
+              },
+            },
+          ),
           getBookProgress(book.id),
         ]);
         if (active) {
@@ -142,6 +163,14 @@ export default function ReaderPage() {
         aria-label="Conteúdo da obra"
         className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-2 py-3 sm:px-6 sm:py-5 lg:px-8"
       >
+        {cacheWarning && !loading && (
+          <p
+            role="status"
+            className="mb-3 rounded-xl border border-amber-200/15 bg-amber-200/[0.05] px-4 py-2 text-xs leading-5 text-amber-100"
+          >
+            {cacheWarning}
+          </p>
+        )}
         {loading ? (
           <ReaderLoading
             title="Abrindo sua obra"

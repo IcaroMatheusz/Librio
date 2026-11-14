@@ -17,6 +17,9 @@ import {
   Maximize,
 } from "lucide-react";
 
+import { useReaderTheme, type ReaderTheme } from "../../hooks/useReaderTheme";
+import { ReaderThemeToggle } from "./ReaderThemeToggle";
+import { ChapterSelector } from "./ChapterSelector";
 import {
   ReaderModeToggle,
   type ReadingMode,
@@ -39,38 +42,96 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const CONTENT_CLASSES: Partial<Record<EpubContentNode["type"], string>> = {
   blockquote:
-    "my-6 border-l-2 border-violet-300/50 pl-4 italic text-slate-300",
-  code: "rounded bg-black/20 px-1.5 py-0.5 font-mono text-violet-100",
-  dd: "ml-5 mt-1 text-slate-300",
+    "my-6 border-l-2 pl-4 italic",
+  code: "rounded px-1.5 py-0.5 font-mono",
+  dd: "ml-5 mt-1",
   dl: "my-5",
-  dt: "mt-3 font-semibold text-slate-100",
+  dt: "mt-3 font-semibold",
   em: "italic",
-  a: "text-violet-200 underline decoration-violet-200/30 underline-offset-2",
-  figcaption: "mt-2 text-center text-sm text-slate-400",
+  a: "underline underline-offset-2",
+  figcaption: "mt-2 text-center text-sm",
   figure: "my-6 flex flex-col items-center",
-  h1: "mb-6 mt-10 text-3xl font-bold tracking-tight text-white",
-  h2: "mb-5 mt-9 text-2xl font-bold tracking-tight text-white",
-  h3: "mb-4 mt-7 text-xl font-bold text-white",
-  h4: "mb-3 mt-6 text-lg font-bold text-white",
-  h5: "mb-3 mt-5 font-bold text-white",
-  h6: "mb-2 mt-4 font-bold text-slate-200",
+  h1: "mb-6 mt-10 text-3xl font-bold tracking-tight",
+  h2: "mb-5 mt-9 text-2xl font-bold tracking-tight",
+  h3: "mb-4 mt-7 text-xl font-bold",
+  h4: "mb-3 mt-6 text-lg font-bold",
+  h5: "mb-3 mt-5 font-bold",
+  h6: "mb-2 mt-4 font-bold",
   i: "italic",
   img: "mx-auto block h-auto max-h-[calc(100dvh-240px)] max-w-full break-inside-avoid-column rounded-lg object-contain",
   li: "my-1 pl-1",
-  ol: "my-5 list-decimal space-y-1 pl-7 marker:text-violet-200",
-  p: "my-5 break-inside-avoid-column whitespace-pre-wrap text-[1.05rem] leading-[1.9] text-slate-200",
-  pre: "my-5 overflow-x-auto rounded-xl bg-black/25 p-4 font-mono text-sm",
+  ol: "my-5 list-decimal space-y-1 pl-7",
+  p: "my-5 break-inside-avoid-column whitespace-pre-wrap leading-[1.9]",
+  pre: "my-5 overflow-x-auto rounded-xl p-4 font-mono text-sm",
   section: "my-4",
-  small: "text-sm text-slate-400",
-  strong: "font-bold text-white",
+  small: "text-sm",
+  strong: "font-bold",
   table: "my-6 w-full border-collapse text-left text-sm",
-  td: "border border-white/10 px-3 py-2",
-  th: "border border-white/10 bg-white/[0.05] px-3 py-2 font-semibold",
-  tr: "border-b border-white/10",
-  ul: "my-5 list-disc space-y-1 pl-7 marker:text-violet-200",
+  td: "border px-3 py-2",
+  th: "border px-3 py-2 font-semibold",
+  tr: "border-b",
+  ul: "my-5 list-disc space-y-1 pl-7",
 };
 
-function renderContent(nodes: EpubContentNode[], parentKey = "content"): ReactNode {
+const CONTENT_THEME_CLASSES: Record<
+  ReaderTheme,
+  Partial<Record<EpubContentNode["type"], string>>
+> = {
+  night: {
+    blockquote: "border-violet-300/50 text-slate-300",
+    code: "bg-black/20 text-violet-100",
+    dd: "text-slate-300",
+    dt: "text-slate-100",
+    a: "text-violet-200 decoration-violet-200/30",
+    figcaption: "text-slate-400",
+    h1: "text-white",
+    h2: "text-white",
+    h3: "text-white",
+    h4: "text-white",
+    h5: "text-white",
+    h6: "text-slate-200",
+    li: "text-slate-200",
+    ol: "marker:text-violet-200",
+    p: "text-slate-200",
+    pre: "bg-black/25 text-slate-200",
+    small: "text-slate-400",
+    strong: "text-white",
+    td: "border-white/10 text-slate-200",
+    th: "border-white/10 bg-white/[0.05] text-white",
+    tr: "border-white/10",
+    ul: "marker:text-violet-200",
+  },
+  light: {
+    blockquote: "border-violet-500/40 text-stone-700",
+    code: "bg-stone-200 text-violet-900",
+    dd: "text-stone-700",
+    dt: "text-stone-900",
+    a: "text-violet-800 decoration-violet-500/40",
+    figcaption: "text-stone-500",
+    h1: "text-stone-950",
+    h2: "text-stone-950",
+    h3: "text-stone-950",
+    h4: "text-stone-950",
+    h5: "text-stone-950",
+    h6: "text-stone-800",
+    li: "text-stone-800",
+    ol: "marker:text-violet-700",
+    p: "text-stone-800",
+    pre: "bg-stone-200 text-stone-800",
+    small: "text-stone-500",
+    strong: "text-stone-950",
+    td: "border-stone-300 text-stone-800",
+    th: "border-stone-300 bg-stone-200 text-stone-950",
+    tr: "border-stone-300",
+    ul: "marker:text-violet-700",
+  },
+};
+
+function renderContent(
+  nodes: EpubContentNode[],
+  theme: ReaderTheme,
+  parentKey = "content",
+): ReactNode {
   return nodes.map((node, index) => {
     const key = `${parentKey}-${index}`;
     if (node.type === "img") {
@@ -79,7 +140,9 @@ function renderContent(nodes: EpubContentNode[], parentKey = "content"): ReactNo
             key,
             src: node.src,
             alt: node.alt ?? "",
-            className: CONTENT_CLASSES.img,
+            className: `${CONTENT_CLASSES.img} ${
+              theme === "light" ? "rounded-none sm:rounded-lg" : ""
+            }`,
           })
         : null;
     }
@@ -92,9 +155,11 @@ function renderContent(nodes: EpubContentNode[], parentKey = "content"): ReactNo
       node.type,
       {
         key,
-        className: CONTENT_CLASSES[node.type],
+        className: `${CONTENT_CLASSES[node.type] ?? ""} ${
+          CONTENT_THEME_CLASSES[theme][node.type] ?? ""
+        }`,
       },
-      node.text ?? renderContent(node.children ?? [], key),
+      node.text ?? renderContent(node.children ?? [], theme, key),
     );
   });
 }
@@ -133,6 +198,7 @@ export function EpubReader({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
+  const { theme, setTheme } = useReaderTheme();
 
   useEffect(() => {
     let active = true;
@@ -420,18 +486,40 @@ export function EpubReader({
     <section
       ref={readerRef}
       aria-label="Leitor de EPUB"
-      className="flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25"
+      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl shadow-black/25 ${
+        theme === "night"
+          ? "border-white/10 bg-[#151827]"
+          : "border-stone-300 bg-[#fffaf0]"
+      }`}
     >
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-3 py-2.5 backdrop-blur sm:px-5">
+      <header
+        className={`flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5 backdrop-blur sm:px-5 ${
+          theme === "night"
+            ? "border-white/[0.08] bg-[#202435]/95"
+            : "border-stone-300 bg-[#f2eadc]/95"
+        }`}
+      >
         <div className="flex min-w-0 items-center gap-2.5">
           <BookOpen
             aria-hidden="true"
             size={18}
-            className="shrink-0 text-violet-200"
+            className={`shrink-0 ${
+              theme === "night" ? "text-violet-200" : "text-violet-700"
+            }`}
           />
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-white">{book.title}</p>
-            <p className="truncate text-xs text-slate-400">
+            <p
+              className={`truncate text-sm font-bold ${
+                theme === "night" ? "text-white" : "text-stone-900"
+              }`}
+            >
+              {book.title}
+            </p>
+            <p
+              className={`truncate text-xs ${
+                theme === "night" ? "text-slate-400" : "text-stone-500"
+              }`}
+            >
               {currentChapter.title}
             </p>
           </div>
@@ -441,36 +529,36 @@ export function EpubReader({
             mode={readingMode}
             onChange={changeReadingMode}
           />
-          <label className="sr-only" htmlFor="epub-chapter">
-            Ir para capítulo
-          </label>
-          <select
+          <ReaderThemeToggle theme={theme} onChange={setTheme} />
+          <ChapterSelector
             id="epub-chapter"
-            value={chapterIndex}
-            onChange={(event) => {
+            label="Ir para capítulo"
+            value={String(chapterIndex)}
+            options={book.chapters.map((chapter, index) => ({
+              value: String(index),
+              label: `${index + 1}. ${chapter.title}`,
+            }))}
+            onChange={(value) => {
               pendingOffsetRef.current = 0;
               restoreContentRef.current = true;
               chapterProgressRef.current = 0;
-              setChapterIndex(Number(event.target.value));
+              setChapterIndex(Number(value));
               setChapterProgress(0);
             }}
-            className="max-w-40 rounded-lg border border-white/10 bg-[#171A27] px-2 py-2 text-xs text-slate-200 focus-visible:outline-2 focus-visible:outline-violet-200"
-          >
-            {book.chapters.map((chapter, index) => (
-              <option key={chapter.id} value={index}>
-                {index + 1}. {chapter.title}
-              </option>
-            ))}
-          </select>
+          />
         </div>
       </header>
 
       <div
-      className={`grid flex-1 items-stretch gap-1 overflow-hidden bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4 ${
-        readingMode === "page"
-          ? "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
-          : "grid-cols-1"
-      }`}
+        className={`grid flex-1 items-stretch gap-1 overflow-hidden p-2 sm:gap-3 sm:p-4 ${
+          theme === "night"
+            ? "bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.07),transparent_65%)]"
+            : "bg-stone-200"
+        } ${
+          readingMode === "page"
+            ? "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
+            : "grid-cols-1"
+        }`}
       >
       {readingMode === "page" && (
       <button
@@ -495,11 +583,15 @@ export function EpubReader({
             readingMode === "page"
               ? "overflow-x-auto overflow-y-hidden"
               : "overflow-y-auto"
+          } ${
+            theme === "night"
+              ? "bg-[#151827] text-slate-200"
+              : "bg-[#fffaf0] text-stone-800 shadow-inner shadow-stone-900/5"
           }`}
         >
           {readingMode === "page" ? (
             <article
-              className="h-full max-w-none"
+              className="h-full max-w-none font-serif text-[1.05rem] leading-[1.85] sm:text-lg"
               style={{
                 height: "100%",
                 columnWidth: pageWidth ? `${pageWidth}px` : "auto",
@@ -507,23 +599,29 @@ export function EpubReader({
                 columnFill: "auto",
               }}
             >
-              {renderContent(currentChapter.content, currentChapter.id)}
+              {renderContent(currentChapter.content, theme, currentChapter.id)}
             </article>
           ) : (
-            <div className="mx-auto max-w-3xl space-y-12">
+            <div className="mx-auto max-w-3xl space-y-12 font-serif text-[1.05rem] leading-[1.85] sm:text-lg">
               {book.chapters.map((chapter, index) => (
                 <article
                   key={chapter.id}
                   data-epub-chapter={index}
                   aria-label={chapter.title}
-                  className="border-b border-white/10 pb-8 last:border-b-0"
+                  className={`border-b pb-8 last:border-b-0 ${
+                    theme === "night" ? "border-white/10" : "border-stone-300"
+                  }`}
                 >
                   {index > 0 && (
-                    <h2 className="mb-8 mt-4 text-center text-lg font-bold text-violet-200">
+                    <h2
+                      className={`mb-8 mt-4 text-center font-sans text-lg font-bold ${
+                        theme === "night" ? "text-violet-200" : "text-violet-800"
+                      }`}
+                    >
                       {chapter.title}
                     </h2>
                   )}
-                  {renderContent(chapter.content, chapter.id)}
+                  {renderContent(chapter.content, theme, chapter.id)}
                 </article>
               ))}
             </div>
@@ -549,7 +647,13 @@ export function EpubReader({
         )}
       </div>
 
-      <footer className="flex min-h-11 items-center justify-between gap-3 border-t border-white/[0.08] bg-[#202435]/70 px-3 text-xs text-slate-400 sm:px-4">
+      <footer
+        className={`flex min-h-11 items-center justify-between gap-3 border-t px-3 text-xs sm:px-4 ${
+          theme === "night"
+            ? "border-white/[0.08] bg-[#202435]/70 text-slate-400"
+            : "border-stone-300 bg-[#f2eadc] text-stone-600"
+        }`}
+      >
         <span
           className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-violet-100"
           aria-label={`${currentProgress}% do EPUB lido`}

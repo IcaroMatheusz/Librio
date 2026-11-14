@@ -20,11 +20,13 @@ import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 import { usePinchZoom } from "../../hooks/usePinchZoom";
+import { useReaderTheme } from "../../hooks/useReaderTheme";
 import {
   ReaderModeToggle,
   type ReadingMode,
 } from "./ReaderModeToggle";
 import { PdfContinuousPage } from "./PdfContinuousPage";
+import { ReaderThemeToggle } from "./ReaderThemeToggle";
 import { ReaderLoading } from "./ReaderLoading";
 
 interface PdfReaderProps {
@@ -68,6 +70,7 @@ export function PdfReader({
     () => document.visibilityState === "visible",
   );
   const pinchZoom = usePinchZoom(zoom, setZoom);
+  const { theme, setTheme } = useReaderTheme();
 
   useEffect(() => {
     let active = true;
@@ -408,15 +411,26 @@ export function PdfReader({
     <section
       ref={readerRef}
       aria-label="Leitor de PDF"
-      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25 ${
+      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl shadow-black/25 ${
+        theme === "night"
+          ? "border-white/10 bg-[#151827]"
+          : "border-stone-300 bg-[#fffaf0]"
+      } ${
         isFullscreen
           ? "fixed inset-0 z-50 h-[100dvh] min-h-0 w-screen rounded-none border-0"
           : ""
       }`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-2 py-2 backdrop-blur sm:px-4">
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 border-b px-2 py-2 backdrop-blur sm:px-4 ${
+          theme === "night"
+            ? "border-white/[0.08] bg-[#202435]/90"
+            : "border-stone-300 bg-[#f2eadc]/95"
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-end gap-2">
           <ReaderModeToggle mode={readingMode} onChange={setReadingMode} />
+          <ReaderThemeToggle theme={theme} onChange={setTheme} />
           <div className="flex items-center gap-1">
           <button
             type="button"
@@ -506,7 +520,11 @@ export function PdfReader({
       </div>
 
       <div
-        className={`grid min-h-0 flex-1 overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4 ${
+        className={`grid min-h-0 flex-1 overflow-auto p-2 sm:gap-3 sm:p-4 ${
+          theme === "night"
+            ? "bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)]"
+            : "bg-stone-200"
+        } ${
           readingMode === "page"
             ? "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1"
             : "grid-cols-1"
@@ -548,6 +566,7 @@ export function PdfReader({
                   pageNumber={index + 1}
                   zoom={zoom}
                   width={containerWidth || window.innerWidth}
+                  theme={theme}
                   onVisible={handleContinuousPageVisible}
                 />
               ))}
@@ -576,7 +595,11 @@ export function PdfReader({
               ref={canvasRef}
               aria-label={`Página ${pageNumber} de ${pdfDocument.numPages}`}
               className="cursor-pointer object-contain shadow-2xl shadow-black/30"
-              style={{ transform: `scale(${pinchZoom.previewScale})` }}
+              style={{
+                transform: `scale(${pinchZoom.previewScale})`,
+                filter:
+                  theme === "night" ? "invert(0.9) hue-rotate(180deg)" : undefined,
+              }}
             />
           </div>
         )}
@@ -593,7 +616,13 @@ export function PdfReader({
         )}
       </div>
 
-      <footer className="flex min-h-11 items-center justify-between gap-3 border-t border-white/[0.08] bg-[#202435]/70 px-3 text-xs text-slate-400 sm:px-4">
+      <footer
+        className={`flex min-h-11 items-center justify-between gap-3 border-t px-3 text-xs sm:px-4 ${
+          theme === "night"
+            ? "border-white/[0.08] bg-[#202435]/70 text-slate-400"
+            : "border-stone-300 bg-[#f2eadc] text-stone-600"
+        }`}
+      >
         <span
           className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-violet-100"
           aria-label={`${readingProgress}% do PDF lido`}
