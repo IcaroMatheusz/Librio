@@ -12,7 +12,9 @@ import Profile from "./pages/profile/ProfilePage";
 import ErrorScreen from "./pages/error/ErrorScreen";
 import Library from "./pages/library/LibraryPage";
 import Upload from "./pages/library/UploadPage";
+import CreateVolume from "./pages/library/CreateVolumePage";
 import Reader from "./pages/reader/ReaderPage";
+import VolumeReader from "./pages/reader/VolumeReaderPage";
 
 const Download = lazy(() => import("./pages/download/DownloadPage"));
 
@@ -33,6 +35,7 @@ export default function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/library" element={<Library />} />
               <Route path="/upload" element={<Upload />} />
+              <Route path="/volumes/new" element={<CreateVolume />} />
               <Route
                 path="/download"
                 element={
@@ -42,6 +45,7 @@ export default function App() {
                 }
               />
               <Route path="/reader/:bookId" element={<Reader />} />
+              <Route path="/volume/:volumeId" element={<VolumeReader />} />
             </Route>
             <Route path="*" element={<ErrorScreen />} />
           </Routes>

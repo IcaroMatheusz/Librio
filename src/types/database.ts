@@ -87,6 +87,64 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["user_storage"]["Insert"]>;
         Relationships: [];
       };
+      book_volumes: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          author: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title: string;
+          author: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["book_volumes"]["Insert"]>;
+        Relationships: [];
+      };
+      volume_chapters: {
+        Row: {
+          volume_id: string;
+          book_id: string;
+          chapter_number: number;
+          title: string;
+          created_at: string;
+        };
+        Insert: {
+          volume_id: string;
+          book_id: string;
+          chapter_number: number;
+          title: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["volume_chapters"]["Insert"]>;
+        Relationships: [];
+      };
+      volume_reading_progress: {
+        Row: {
+          volume_id: string;
+          user_id: string;
+          chapter_number: number;
+          progress: number;
+          last_read_at: string | null;
+        };
+        Insert: {
+          volume_id: string;
+          user_id: string;
+          chapter_number: number;
+          progress: number;
+          last_read_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["volume_reading_progress"]["Insert"]
+        >;
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };

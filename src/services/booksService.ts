@@ -267,6 +267,14 @@ export async function deleteBook(book: Book): Promise<string | null> {
     .single();
 
   if (deleteError) {
+    if (
+      deleteError.code === "23503" &&
+      deleteError.message.includes("volume_chapters")
+    ) {
+      throw new Error(
+        "Este PDF faz parte de um volume. Exclua o volume antes de remover o arquivo da biblioteca.",
+      );
+    }
     throw new Error(`Não foi possível excluir a obra: ${deleteError.message}`);
   }
   if (!deleted) {
