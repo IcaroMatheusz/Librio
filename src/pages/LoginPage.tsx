@@ -24,7 +24,7 @@ const PHRASES = [
 export default function LoginScreen({
   // Dica: baixe as imagens para public/images/ e use caminhos locais
   backgroundImage = "https://wallpapers.com/images/featured/bakuman-b3xo0h0nws14tkcn.jpg",
-  mobileBackgroundImage = "https://i.pinimg.com/1200x/bd/96/9e/bd969e7a3a7552a5740a73386f261c4a.jpg",
+  mobileBackgroundImage = "https://i.pinimg.com/736x/06/d7/90/06d7904af054d44d74624cf2dcfd89cc.jpg",
   onSubmit,
 }: LoginScreenProps) {
   const [username, setUsername] = useState("");
@@ -68,9 +68,10 @@ export default function LoginScreen({
     }
   }
 
+  // text-base (16px) nos inputs evita o zoom automático do Safari no iPhone
   const inputClass = `
     w-full rounded-xl border border-neutral-300/70
-    bg-white px-4 py-3.5 text-base text-neutral-900
+    bg-white px-4 py-3 text-base text-neutral-900 md:py-3.5
     placeholder:text-neutral-400
     outline-none transition-all duration-200
     focus:border-[#2F3447]
@@ -88,7 +89,7 @@ export default function LoginScreen({
       <section className="
         relative isolate flex min-h-screen min-h-dvh
         flex-col items-center justify-center
-        overflow-hidden px-5 py-8 sm:px-8 lg:px-12
+        overflow-hidden px-6 py-6 sm:px-8 sm:py-10 lg:px-8 xl:px-12
       ">
 
         {/* BACKGROUND MOBILE */}
@@ -131,39 +132,42 @@ export default function LoginScreen({
           style={{ animationDelay: "-3s" }}
         />
 
-        {/* LOGO MOBILE */}
+        {/* LOGO MOBILE / TABLET */}
         <div className="
-          relative z-10 mb-8 flex items-center
-          gap-3 text-white lg:hidden
+          relative z-10 mb-5 flex items-center
+          gap-3 text-white md:mb-8 lg:hidden
         ">
           <div className="
-            flex h-12 w-12 items-center justify-center
+            flex h-10 w-10 items-center justify-center
             rounded-2xl border border-white/20
             bg-white/10 backdrop-blur-md
+            md:h-14 md:w-14
           ">
-            <BookOpen size={26} />
+            <BookOpen className="h-5 w-5 md:h-7 md:w-7" />
           </div>
 
-          <span className="text-3xl font-extrabold tracking-tight">
+          <span className="text-2xl font-extrabold tracking-tight md:text-4xl">
             Librio
           </span>
         </div>
 
         {/* CARD DE LOGIN */}
         <div className="
-          anim-fade-up relative z-10 w-full max-w-md
-          rounded-[28px] border border-white/60
+          anim-fade-up relative z-10 w-full
+          max-w-sm sm:max-w-md md:max-w-lg lg:max-w-md
+          rounded-3xl border border-white/60 md:rounded-[28px]
           bg-gradient-to-br from-[#FAF8FF] to-[#E9E1F5]
-          p-6 ring-1 ring-black/5
+          p-5 ring-1 ring-black/5
           shadow-[0_30px_70px_-15px_rgba(10,8,25,0.65)]
-          sm:p-10 lg:p-11
+          sm:p-8 md:p-10 lg:p-9 xl:p-11
         ">
 
           {/* CABEÇALHO */}
-          <header className="mb-3">
+          <header className="mb-4 md:mb-5">
             <h1 className="
-              text-4xl font-extrabold tracking-tight
-              text-[#202330] sm:text-5xl
+              text-3xl font-extrabold tracking-tight
+              text-[#202330] sm:text-4xl md:text-5xl
+              lg:text-4xl xl:text-5xl
             ">
               Bem-vindo!
             </h1>
@@ -173,7 +177,7 @@ export default function LoginScreen({
           <form
             onSubmit={handleSubmit}
             noValidate
-            className="flex flex-col gap-5"
+            className="flex flex-col gap-4 md:gap-5"
           >
 
             {/* EMAIL */}
@@ -269,9 +273,9 @@ export default function LoginScreen({
               type="submit"
               disabled={loading}
               className="
-                mt-2 flex w-full items-center
+                mt-1 flex w-full items-center md:mt-2
                 justify-center rounded-xl
-                bg-[#2F3447] px-6 py-4
+                bg-[#2F3447] px-6 py-3.5 md:py-4
                 text-base font-bold text-white
                 shadow-lg shadow-[#2F3447]/15
                 transition-all duration-200
@@ -289,8 +293,8 @@ export default function LoginScreen({
 
           {/* CADASTRO */}
           <div className="
-            mt-8 border-t border-[#2F3447]/10
-            pt-6 text-center
+            mt-6 border-t border-[#2F3447]/10
+            pt-5 text-center md:mt-8 md:pt-6
           ">
             <p className="text-sm text-neutral-600">
               Ainda não tem uma conta?{" "}
@@ -312,8 +316,8 @@ export default function LoginScreen({
 
         {/* RODAPÉ */}
         <p className="
-          relative z-10 mt-8 text-center text-xs
-          tracking-wide text-white/70
+          relative z-10 mt-6 text-center text-xs
+          tracking-wide text-white/70 md:mt-8 md:text-sm
         ">
           Librio © 2026 — Sua próxima leitura começa aqui.
         </p>
@@ -343,7 +347,7 @@ export default function LoginScreen({
         {/* CONTEÚDO DESKTOP */}
         <div className="
           relative z-10 flex w-full flex-col
-          justify-end p-12 text-white
+          justify-end p-10 text-white
           xl:p-20
         ">
 
