@@ -153,16 +153,15 @@ export function PdfReader({
         if (cancelled) return;
 
         const baseViewport = page.getViewport({ scale: 1 });
-        const availableWidth = Math.max(
-          240,
-          (containerWidth || window.innerWidth) - 32,
+        const availableWidth = Math.max(160, (containerWidth || window.innerWidth) - 32);
+        const availableHeight = Math.max(
+          160,
+          (containerHeight || window.innerHeight) - (isFullscreen ? 16 : 32),
         );
-        const fitWidthScale = availableWidth / baseViewport.width;
-        const fitHeightScale =
-          isFullscreen && containerHeight > 0
-            ? Math.max(120, containerHeight - 16) / baseViewport.height
-            : fitWidthScale;
-        const fitScale = Math.min(fitWidthScale, fitHeightScale);
+        const fitScale = Math.min(
+          availableWidth / baseViewport.width,
+          availableHeight / baseViewport.height,
+        );
         const viewport = page.getViewport({ scale: fitScale * zoom });
         const pixelRatio = Math.min(
           window.devicePixelRatio || 1,
