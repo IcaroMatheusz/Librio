@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
 import { ComicReader } from "../../components/reader/ComicReader";
+import { EpubReader } from "../../components/reader/EpubReader";
 import { PdfReader } from "../../components/reader/PdfReader";
 import { ReaderLoading } from "../../components/reader/ReaderLoading";
 import { getBookById, getBookFile } from "../../services/booksService";
@@ -58,8 +59,8 @@ export default function ReaderPage() {
       try {
         if (!bookId) throw new Error("O endereço desta obra é inválido.");
         const book = await getBookById(bookId);
-        if (!["PDF", "CBR", "CBZ"].includes(book.file_type.toUpperCase())) {
-          throw new Error("Este leitor aceita arquivos PDF, CBR e CBZ.");
+        if (!["PDF", "EPUB", "CBR", "CBZ"].includes(book.file_type.toUpperCase())) {
+          throw new Error("Este leitor aceita arquivos PDF, EPUB, CBR e CBZ.");
         }
 
         setLoadDetail(`Baixando arquivo ${book.file_type.toUpperCase()}…`);
@@ -161,6 +162,12 @@ export default function ReaderPage() {
           </article>
         ) : document?.book.file_type.toUpperCase() === "PDF" ? (
           <PdfReader
+            file={document.file}
+            initialProgress={document.progress}
+            onProgressChange={saveProgress}
+          />
+        ) : document?.book.file_type.toUpperCase() === "EPUB" ? (
+          <EpubReader
             file={document.file}
             initialProgress={document.progress}
             onProgressChange={saveProgress}

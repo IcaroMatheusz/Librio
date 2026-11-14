@@ -62,6 +62,7 @@ export function PdfReader({
         pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
         loadingTask = pdfjs.getDocument({
           data: await file.arrayBuffer(),
+          wasmUrl: `${import.meta.env.BASE_URL}pdfjs/`,
         });
         const loadedDocument = await loadingTask.promise;
         if (!active) return;

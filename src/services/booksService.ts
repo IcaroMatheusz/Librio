@@ -525,11 +525,12 @@ export async function uploadBook(
   const fileTypes: Record<string, BookFileType> = {
     cbr: "cbr",
     cbz: "cbz",
+    epub: "epub",
     pdf: "pdf",
   };
   const fileType = fileTypes[extension ?? ""];
   if (!fileType) {
-    throw new Error("Envie um arquivo .pdf, .cbr ou .cbz.");
+    throw new Error("Envie um arquivo .pdf, .epub, .cbr ou .cbz.");
   }
   if (file.size === 0) throw new Error("O arquivo está vazio.");
 

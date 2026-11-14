@@ -71,10 +71,11 @@ export default function UploadPage() {
 
     if (!selectedFile) return;
     const extension = selectedFile.name.split(".").pop()?.toLowerCase();
-    if (!["pdf", "cbr", "cbz"].includes(extension ?? "")) {
+    if (!["pdf", "epub", "cbr", "cbz"].includes(extension ?? "")) {
       setResult({
         type: "error",
-        message: "Formato não compatível. Escolha um arquivo PDF, CBR ou CBZ.",
+        message:
+          "Formato não compatível. Escolha um arquivo PDF, EPUB, CBR ou CBZ.",
       });
       return;
     }
@@ -244,7 +245,7 @@ export default function UploadPage() {
                 <input
                   id="book-file"
                   type="file"
-                  accept=".pdf,.cbr,.cbz,application/pdf,application/vnd.comicbook-rar,application/vnd.comicbook+zip"
+                  accept=".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip"
                   required
                   disabled={uploading}
                   onChange={handleFileChange}
@@ -271,7 +272,7 @@ export default function UploadPage() {
                   <span className="mt-1 text-xs text-slate-400">
                     {file
                       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB · pronto para enviar`
-                      : "PDF, CBR ou CBZ · até 100 MB"}
+                      : "PDF, EPUB, CBR ou CBZ · até 100 MB"}
                   </span>
                 </label>
               </div>

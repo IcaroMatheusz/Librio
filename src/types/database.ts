@@ -96,7 +96,7 @@ export interface Database {
 }
 
 export type Book = Database["public"]["Tables"]["books"]["Row"];
-export type BookFileType = "pdf" | "cbr" | "cbz";
+export type BookFileType = "pdf" | "epub" | "cbr" | "cbz";
 export type ReadingProgress =
   Database["public"]["Tables"]["reading_progress"]["Row"];
 export type UserStorage = Database["public"]["Tables"]["user_storage"]["Row"];
