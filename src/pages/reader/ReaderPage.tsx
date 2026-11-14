@@ -1,15 +1,20 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { ComicReader } from "../../components/reader/ComicReader";
+import { PdfReader } from "../../components/reader/PdfReader";
 import { getBookById, getBookFile } from "../../services/booksService";
+import {
+  getBookProgress,
+  saveBookProgress,
+} from "../../services/progressService";
 import type { Book } from "../../types/database";
 
 interface ReaderDocument {
   book: Book;
   file: Blob;
-  pdfUrl: string | null;
+  progress: number;
 }
 
 export default function ReaderPage() {
@@ -18,9 +23,16 @@ export default function ReaderPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const saveProgress = useCallback(
+    async (progress: number) => {
+      if (!bookId) return;
+      await saveBookProgress(bookId, progress);
+    },
+    [bookId],
+  );
+
   useEffect(() => {
     let active = true;
-    let pdfUrl: string | null = null;
 
     async function loadDocument() {
       try {
@@ -30,11 +42,11 @@ export default function ReaderPage() {
           throw new Error("Este leitor aceita arquivos PDF, CBR e CBZ.");
         }
 
-        const file = await getBookFile(book.file_path);
-        if (book.file_type.toUpperCase() === "PDF") {
-          pdfUrl = URL.createObjectURL(file);
-        }
-        if (active) setDocument({ book, file, pdfUrl });
+        const [file, progress] = await Promise.all([
+          getBookFile(book.file_path),
+          getBookProgress(book.id),
+        ]);
+        if (active) setDocument({ book, file, progress });
       } catch (caughtError) {
         if (active) {
           setError(
@@ -51,7 +63,6 @@ export default function ReaderPage() {
     void loadDocument();
     return () => {
       active = false;
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     };
   }, [bookId]);
 
@@ -98,12 +109,11 @@ export default function ReaderPage() {
               Voltar à biblioteca
             </Link>
           </article>
-        ) : document?.book.file_type.toUpperCase() === "PDF" &&
-          document.pdfUrl ? (
-          <iframe
-            title={`Leitor de ${document.book.title}`}
-            src={document.pdfUrl}
-            className="min-h-[75dvh] w-full flex-1 rounded-xl border border-white/10 bg-white"
+        ) : document?.book.file_type.toUpperCase() === "PDF" ? (
+          <PdfReader
+            file={document.file}
+            initialProgress={document.progress}
+            onProgressChange={saveProgress}
           />
         ) : document ? (
           <ComicReader

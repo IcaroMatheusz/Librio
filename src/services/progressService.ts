@@ -7,6 +7,42 @@ export interface ProgressCounts {
   completed: number;
 }
 
+export async function getBookProgress(
+  bookId: string,
+): Promise<number> {
+  const client = await getSupabaseClient();
+  const { data, error } = await client
+    .from("reading_progress")
+    .select("progress")
+    .eq("book_id", bookId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Não foi possível carregar o progresso da leitura: ${error.message}`);
+  }
+
+  return data?.progress ?? 0;
+}
+
+export async function saveBookProgress(
+  bookId: string,
+  progress: number,
+): Promise<void> {
+  const client = await getSupabaseClient();
+  const { error } = await client.from("reading_progress").upsert(
+    {
+      book_id: bookId,
+      progress: Math.max(0, Math.min(100, Math.round(progress))),
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: "book_id" },
+  );
+
+  if (error) {
+    throw new Error(`Não foi possível salvar o progresso da leitura: ${error.message}`);
+  }
+}
+
 export async function getRecentReads(): Promise<RecentRead[]> {
   const client = await getSupabaseClient();
   const { data: progressRows, error: progressError } = await client
