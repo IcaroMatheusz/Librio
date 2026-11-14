@@ -21,8 +21,6 @@ const PHRASES = [
   "Suas histórias.",
 ];
 
-
-
 export default function LoginScreen({
   // Dica: baixe as imagens para public/images/ e use caminhos locais
   backgroundImage = "https://wallpapers.com/images/featured/bakuman-b3xo0h0nws14tkcn.jpg",
