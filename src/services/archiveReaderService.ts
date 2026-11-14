@@ -9,6 +9,7 @@ import unrarWasmUrl from "node-unrar-js/esm/js/unrar.wasm?url";
 const IMAGE_EXTENSIONS = /\.(avif|bmp|gif|jpe?g|png|webp)$/i;
 const MAX_COMIC_PAGES = 500;
 const MAX_UNCOMPRESSED_SIZE = 200 * 1024 * 1024;
+const MAX_COVER_SIZE = 50 * 1024 * 1024;
 
 export interface ArchivePage {
   name: string;
@@ -22,12 +23,14 @@ function getImageType(fileName: string): string {
 }
 
 function sortPages(pages: ArchivePage[]): ArchivePage[] {
-  return pages.sort((first, second) =>
-    first.name.localeCompare(second.name, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    }),
-  );
+  return pages.sort((first, second) => comparePageNames(first.name, second.name));
+}
+
+function comparePageNames(first: string, second: string): number {
+  return first.localeCompare(second, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 }
 
 async function extractCbz(archive: Blob): Promise<ArchivePage[]> {
@@ -41,10 +44,7 @@ async function extractCbz(archive: Blob): Promise<ArchivePage[]> {
           entry.directory === false && IMAGE_EXTENSIONS.test(entry.filename),
       )
       .sort((first, second) =>
-        first.filename.localeCompare(second.filename, undefined, {
-          numeric: true,
-          sensitivity: "base",
-        }),
+        comparePageNames(first.filename, second.filename),
       );
 
     if (imageEntries.length > MAX_COMIC_PAGES) {
@@ -125,6 +125,90 @@ async function extractCbr(archive: Blob): Promise<ArchivePage[]> {
   });
 
   return sortPages(pages);
+}
+
+async function extractFirstCbzPage(archive: Blob): Promise<ArchivePage> {
+  const reader = new ZipReader(new BlobReader(archive));
+
+  try {
+    const entries = await reader.getEntries();
+    const firstImage = entries
+      .filter(
+        (entry): entry is FileEntry =>
+          entry.directory === false && IMAGE_EXTENSIONS.test(entry.filename),
+      )
+      .sort((first, second) =>
+        comparePageNames(first.filename, second.filename),
+      )[0];
+
+    if (!firstImage) {
+      throw new Error("Este CBZ não contém páginas de imagem compatíveis.");
+    }
+    if ((firstImage.uncompressedSize ?? 0) > MAX_COVER_SIZE) {
+      throw new Error("A primeira página deste CBZ é grande demais para gerar a capa.");
+    }
+
+    return {
+      name: firstImage.filename,
+      blob: await firstImage.getData(new BlobWriter()),
+    };
+  } finally {
+    await reader.close();
+  }
+}
+
+async function extractFirstCbrPage(archive: Blob): Promise<ArchivePage> {
+  const [{ createExtractorFromData }, wasmResponse] = await Promise.all([
+    import("node-unrar-js/esm/index.esm.js"),
+    fetch(unrarWasmUrl),
+  ]);
+  if (!wasmResponse.ok) {
+    throw new Error("Não foi possível carregar o leitor de arquivos CBR.");
+  }
+
+  const wasmBinary = await wasmResponse.arrayBuffer();
+  const extractor = await createExtractorFromData({
+    data: await archive.arrayBuffer(),
+    wasmBinary,
+  });
+  const firstImage = Array.from(extractor.getFileList().fileHeaders)
+    .filter(
+      (header) => !header.flags.directory && IMAGE_EXTENSIONS.test(header.name),
+    )
+    .sort((first, second) => comparePageNames(first.name, second.name))[0];
+
+  if (!firstImage) {
+    throw new Error("Este CBR não contém páginas de imagem compatíveis.");
+  }
+  if (firstImage.unpSize > MAX_COVER_SIZE) {
+    throw new Error("A primeira página deste CBR é grande demais para gerar a capa.");
+  }
+
+  const extractedFiles = extractor.extract({ files: [firstImage.name] });
+  const extractedCover = Array.from(extractedFiles.files).find(
+    (file) => file.extraction && !file.fileHeader.flags.directory,
+  );
+  if (!extractedCover?.extraction) {
+    throw new Error("Não foi possível extrair a primeira página deste CBR.");
+  }
+
+  const imageBytes = new Uint8Array(extractedCover.extraction.length);
+  imageBytes.set(extractedCover.extraction);
+  return {
+    name: extractedCover.fileHeader.name,
+    blob: new Blob([imageBytes], {
+      type: getImageType(extractedCover.fileHeader.name),
+    }),
+  };
+}
+
+export async function extractFirstComicPage(
+  fileType: string,
+  archive: Blob,
+): Promise<ArchivePage> {
+  if (fileType === "CBZ") return extractFirstCbzPage(archive);
+  if (fileType === "CBR") return extractFirstCbrPage(archive);
+  throw new Error("Este formato não é um arquivo de quadrinhos compatível.");
 }
 
 export async function extractComicPages(

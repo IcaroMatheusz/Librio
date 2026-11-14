@@ -7,6 +7,56 @@ export const BOOKS_BUCKET = "books";
 const BOOK_FIELDS =
   "id, user_id, title, author, description, cover_url, file_path, file_type, file_size, created_at, updated_at";
 
+function uploadFileWithProgress(
+  signedUrl: string,
+  file: File,
+  onProgress: (progress: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    const body = new FormData();
+    body.append("cacheControl", "3600");
+    body.append("", file);
+
+    request.open("PUT", signedUrl);
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    });
+    request.addEventListener("load", () => {
+      if (request.status >= 200 && request.status < 300) {
+        onProgress(100);
+        resolve();
+        return;
+      }
+
+      let message = `O servidor recusou o arquivo (HTTP ${request.status}).`;
+      try {
+        const response: unknown = JSON.parse(request.responseText);
+        if (
+          typeof response === "object" &&
+          response !== null &&
+          "message" in response &&
+          typeof response.message === "string"
+        ) {
+          message = response.message;
+        }
+      } catch {
+        if (request.responseText) message = request.responseText;
+      }
+      reject(new Error(message));
+    });
+    request.addEventListener("error", () => {
+      reject(new Error("Falha de conexão durante o envio do arquivo."));
+    });
+    request.addEventListener("abort", () => {
+      reject(new Error("O envio do arquivo foi interrompido."));
+    });
+    request.send(body);
+  });
+}
+
 export async function getRecentBooks(): Promise<Book[]> {
   const client = await getSupabaseClient();
   const { data, error } = await client
@@ -67,12 +117,13 @@ export async function uploadBook(
   file: File,
   title: string,
   author: string,
+  onProgress: (progress: number) => void = () => {},
 ): Promise<Book> {
   const extension = file.name.split(".").pop()?.toLowerCase();
   const fileTypes: Record<string, BookFileType> = {
-    cbr: "CBR",
-    cbz: "CBZ",
-    pdf: "PDF",
+    cbr: "cbr",
+    cbz: "cbz",
+    pdf: "pdf",
   };
   const fileType = fileTypes[extension ?? ""];
   if (!fileType) {
@@ -86,22 +137,35 @@ export async function uploadBook(
   }
 
   const client = await getSupabaseClient();
-  const filePath = `${userId}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
-  const { error: uploadError } = await client.storage
+  const bookId = crypto.randomUUID();
+  const filePath = `${userId}/${bookId}.${fileType}`;
+  const { data: signedUpload, error: signedUploadError } = await client.storage
     .from(BOOKS_BUCKET)
-    .upload(filePath, file, {
-      contentType: file.type || "application/octet-stream",
-      cacheControl: "3600",
-      upsert: false,
-    });
+    .createSignedUploadUrl(filePath);
 
-  if (uploadError) {
-    throw new Error(`Não foi possível enviar a obra: ${uploadError.message}`);
+  if (signedUploadError) {
+    throw new Error(
+      `Não foi possível preparar o envio da obra: ${signedUploadError.message}`,
+    );
+  }
+
+  try {
+    await uploadFileWithProgress(signedUpload.signedUrl, file, onProgress);
+  } catch (uploadError) {
+    throw new Error(
+      `Não foi possível enviar a obra: ${
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Ocorreu um erro inesperado."
+      }`,
+      { cause: uploadError },
+    );
   }
 
   const { data: book, error: insertError } = await client
     .from("books")
     .insert({
+      id: bookId,
       user_id: userId,
       title: title.trim(),
       author: author.trim(),

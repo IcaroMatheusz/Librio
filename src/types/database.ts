@@ -26,7 +26,15 @@ export interface Database {
           description: string | null;
           cover_url: string | null;
           file_path: string;
-          file_type: "PDF" | "EPUB" | "CBR" | "CBZ" | string;
+          file_type:
+            | "pdf"
+            | "epub"
+            | "cbr"
+            | "cbz"
+            | "PDF"
+            | "EPUB"
+            | "CBR"
+            | "CBZ";
           file_size: number;
           created_at: string;
           updated_at: string;
@@ -39,7 +47,7 @@ export interface Database {
           description?: string | null;
           cover_url?: string | null;
           file_path: string;
-          file_type: "PDF" | "EPUB" | "CBR" | "CBZ" | string;
+          file_type: "pdf" | "epub" | "cbr" | "cbz";
           file_size: number;
           created_at?: string;
           updated_at?: string;
@@ -86,7 +94,7 @@ export interface Database {
 }
 
 export type Book = Database["public"]["Tables"]["books"]["Row"];
-export type BookFileType = "PDF" | "CBR" | "CBZ";
+export type BookFileType = "pdf" | "cbr" | "cbz";
 export type ReadingProgress =
   Database["public"]["Tables"]["reading_progress"]["Row"];
 export type UserStorage = Database["public"]["Tables"]["user_storage"]["Row"];
