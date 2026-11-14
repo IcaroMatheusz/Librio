@@ -20,6 +20,11 @@ import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 import { usePinchZoom } from "../../hooks/usePinchZoom";
+import {
+  ReaderModeToggle,
+  type ReadingMode,
+} from "./ReaderModeToggle";
+import { PdfContinuousPage } from "./PdfContinuousPage";
 import { ReaderLoading } from "./ReaderLoading";
 
 interface PdfReaderProps {
@@ -40,20 +45,23 @@ export function PdfReader({
 }: PdfReaderProps) {
   const readerRef = useRef<HTMLElement>(null);
   const pageViewportRef = useRef<HTMLDivElement>(null);
+  const continuousViewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const previousReadingModeRef = useRef<ReadingMode>("page");
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRequestRef = useRef(0);
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageInput, setPageInput] = useState("1");
   const [zoom, setZoom] = useState(1);
+  const [readingMode, setReadingMode] = useState<ReadingMode>("page");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [containerWidth, setContainerWidth] = useState(0);
   const [isDocumentVisible, setIsDocumentVisible] = useState(
     () => document.visibilityState === "visible",
   );
@@ -121,13 +129,21 @@ export function PdfReader({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!pdfDocument || !canvas || !isDocumentVisible) return;
+    if (
+      readingMode !== "page" ||
+      !pdfDocument ||
+      !canvas ||
+      !isDocumentVisible
+    ) {
+      return;
+    }
     const activeDocument = pdfDocument;
     const activeCanvas = canvas;
 
     let cancelled = false;
     let renderTask: import("pdfjs-dist").RenderTask | null = null;
     let page: PDFPageProxy | null = null;
+    const renderCanvas = window.document.createElement("canvas");
 
     async function renderPage() {
       try {
@@ -137,16 +153,9 @@ export function PdfReader({
         const baseViewport = page.getViewport({ scale: 1 });
         const availableWidth = Math.max(
           240,
-          (containerSize.width || window.innerWidth) - 32,
+          (containerWidth || window.innerWidth) - 32,
         );
-        const availableHeight = Math.max(
-          320,
-          (containerSize.height || window.innerHeight) - 32,
-        );
-        const fitScale = Math.min(
-          availableWidth / baseViewport.width,
-          availableHeight / baseViewport.height,
-        );
+        const fitScale = availableWidth / baseViewport.width;
         const viewport = page.getViewport({ scale: fitScale * zoom });
         const pixelRatio = Math.min(
           window.devicePixelRatio || 1,
@@ -155,16 +164,14 @@ export function PdfReader({
             MAX_CANVAS_PIXELS / (viewport.width * viewport.height),
           ),
         );
-        const context = activeCanvas.getContext("2d");
+        const context = renderCanvas.getContext("2d");
         if (!context) throw new Error("Não foi possível desenhar a página.");
 
-        activeCanvas.width = Math.ceil(viewport.width * pixelRatio);
-        activeCanvas.height = Math.ceil(viewport.height * pixelRatio);
-        activeCanvas.style.width = `${viewport.width}px`;
-        activeCanvas.style.height = `${viewport.height}px`;
+        renderCanvas.width = Math.ceil(viewport.width * pixelRatio);
+        renderCanvas.height = Math.ceil(viewport.height * pixelRatio);
         setRenderError(null);
         renderTask = page.render({
-          canvas: activeCanvas,
+          canvas: renderCanvas,
           canvasContext: context,
           viewport,
           transform:
@@ -173,6 +180,17 @@ export function PdfReader({
               : [pixelRatio, 0, 0, pixelRatio, 0, 0],
         });
         await renderTask.promise;
+        if (cancelled) return;
+
+        activeCanvas.width = renderCanvas.width;
+        activeCanvas.height = renderCanvas.height;
+        activeCanvas.style.width = `${viewport.width}px`;
+        activeCanvas.style.height = `${viewport.height}px`;
+        const displayContext = activeCanvas.getContext("2d");
+        if (!displayContext) {
+          throw new Error("Não foi possível exibir a página renderizada.");
+        }
+        displayContext.drawImage(renderCanvas, 0, 0);
       } catch (caughtError) {
         if (!cancelled) {
           setRenderError(
@@ -183,6 +201,8 @@ export function PdfReader({
         }
       } finally {
         page?.cleanup();
+        renderCanvas.width = 0;
+        renderCanvas.height = 0;
       }
     }
 
@@ -190,15 +210,13 @@ export function PdfReader({
     return () => {
       cancelled = true;
       renderTask?.cancel();
-      activeCanvas.width = 0;
-      activeCanvas.height = 0;
     };
   }, [
-    containerSize.height,
-    containerSize.width,
+    containerWidth,
     isDocumentVisible,
     pageNumber,
     pdfDocument,
+    readingMode,
     zoom,
   ]);
 
@@ -239,17 +257,47 @@ export function PdfReader({
     };
   }, [onProgressChange, pageNumber, pdfDocument, saveAttempt]);
 
-  const changePage = useCallback(
-    (delta: number) => {
-      const nextPage = Math.min(
+  const navigateToPageNumber = useCallback(
+    (nextPage: number) => {
+      const boundedPage = Math.min(
         pdfDocument?.numPages ?? pageNumber,
-        Math.max(1, pageNumber + delta),
+        Math.max(1, nextPage),
       );
-      setPageNumber(nextPage);
-      setPageInput(String(nextPage));
+      setPageNumber(boundedPage);
+      setPageInput(String(boundedPage));
+      if (readingMode === "vertical") {
+        window.requestAnimationFrame(() => {
+          continuousViewportRef.current
+            ?.querySelector<HTMLElement>(
+              `[data-pdf-page="${boundedPage}"]`,
+            )
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
     },
-    [pageNumber, pdfDocument],
+    [pageNumber, pdfDocument, readingMode],
   );
+
+  const changePage = useCallback(
+    (delta: number) => navigateToPageNumber(pageNumber + delta),
+    [navigateToPageNumber, pageNumber],
+  );
+
+  const handleContinuousPageVisible = useCallback((visiblePage: number) => {
+    setPageNumber(visiblePage);
+    setPageInput(String(visiblePage));
+  }, []);
+
+  useEffect(() => {
+    const modeChanged = previousReadingModeRef.current !== readingMode;
+    previousReadingModeRef.current = readingMode;
+    if (readingMode !== "vertical" || !modeChanged) return;
+    window.requestAnimationFrame(() => {
+      continuousViewportRef.current
+        ?.querySelector<HTMLElement>(`[data-pdf-page="${pageNumber}"]`)
+        ?.scrollIntoView({ block: "start" });
+    });
+  }, [pageNumber, readingMode]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -271,19 +319,19 @@ export function PdfReader({
   }, [changePage, pdfDocument]);
 
   useEffect(() => {
-    const reader = pageViewportRef.current;
+    const reader =
+      readingMode === "page"
+        ? pageViewportRef.current
+        : continuousViewportRef.current;
     if (!reader) return;
 
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      setContainerSize({
-        width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      });
+      setContainerWidth(entry.contentRect.width);
     });
     observer.observe(reader);
     return () => observer.disconnect();
-  }, []);
+  }, [readingMode]);
 
   function navigateToPage(value: string) {
     const page = Number.parseInt(value, 10);
@@ -291,13 +339,12 @@ export function PdfReader({
       setPageInput(String(pageNumber));
       return;
     }
-    const nextPage = Math.min(pdfDocument.numPages, Math.max(1, page));
-    setPageNumber(nextPage);
-    setPageInput(String(nextPage));
+    navigateToPageNumber(page);
   }
 
   function navigateFromPageClick(event: MouseEvent<HTMLDivElement>) {
     if (pinchZoom.consumePinchClick()) return;
+    if (readingMode !== "page") return;
     if (event.button !== 0 || !(event.target instanceof HTMLCanvasElement)) {
       return;
     }
@@ -337,7 +384,9 @@ export function PdfReader({
       className="flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-2 py-2 backdrop-blur sm:px-4">
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ReaderModeToggle mode={readingMode} onChange={setReadingMode} />
+          <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => changePage(-1)}
@@ -412,12 +461,18 @@ export function PdfReader({
           >
             <Maximize aria-hidden="true" size={17} />
           </button>
+          </div>
         </div>
       </div>
 
       <div
-        className="grid flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4"
+        className={`grid min-h-0 flex-1 overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4 ${
+          readingMode === "page"
+            ? "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1"
+            : "grid-cols-1"
+        }`}
       >
+        {readingMode === "page" && (
         <button
           type="button"
           onClick={() => changePage(-1)}
@@ -427,7 +482,31 @@ export function PdfReader({
         >
           <ArrowLeft aria-hidden="true" size={18} />
         </button>
-        {renderError ? (
+        )}
+        {readingMode === "vertical" ? (
+          <div
+            ref={continuousViewportRef}
+            onPointerDown={pinchZoom.handlePointerDown}
+            onPointerMove={pinchZoom.handlePointerMove}
+            onPointerUp={pinchZoom.handlePointerUp}
+            onPointerCancel={pinchZoom.handlePointerCancel}
+            className="h-full min-h-0 overflow-y-auto"
+            style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+          >
+            <div className="mx-auto flex w-full max-w-4xl flex-col items-center gap-0">
+              {Array.from({ length: pdfDocument.numPages }, (_, index) => (
+                <PdfContinuousPage
+                  key={index + 1}
+                  document={pdfDocument}
+                  pageNumber={index + 1}
+                  zoom={zoom}
+                  width={containerWidth || window.innerWidth}
+                  onVisible={handleContinuousPageVisible}
+                />
+              ))}
+            </div>
+          </div>
+        ) : renderError ? (
           <p role="alert" className="text-center text-sm text-rose-200">
             {renderError}
           </p>
@@ -444,7 +523,7 @@ export function PdfReader({
                 ? "items-start justify-start"
                 : "items-center justify-center"
             }`}
-            style={{ touchAction: "pan-x pan-y" }}
+            style={{ touchAction: "pan-x pan-y pinch-zoom" }}
           >
             <canvas
               ref={canvasRef}
@@ -454,6 +533,7 @@ export function PdfReader({
             />
           </div>
         )}
+        {readingMode === "page" && (
         <button
           type="button"
           onClick={() => changePage(1)}
@@ -463,6 +543,7 @@ export function PdfReader({
         >
           <ArrowRight aria-hidden="true" size={18} />
         </button>
+        )}
       </div>
 
       <footer className="flex min-h-11 items-center justify-between gap-3 border-t border-white/[0.08] bg-[#202435]/70 px-3 text-xs text-slate-400 sm:px-4">

@@ -16,6 +16,10 @@ import {
 import { ReaderLoading } from "./ReaderLoading";
 import { usePinchZoom } from "../../hooks/usePinchZoom";
 import {
+  ReaderModeToggle,
+  type ReadingMode,
+} from "./ReaderModeToggle";
+import {
   extractComicPages,
   type ArchivePage,
 } from "../../services/archiveReaderService";
@@ -40,11 +44,14 @@ export function ComicReader({
   onProgressChange,
 }: ComicReaderProps) {
   const readerRef = useRef<HTMLElement>(null);
+  const verticalViewportRef = useRef<HTMLDivElement>(null);
+  const previousReadingModeRef = useRef<ReadingMode>("page");
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRequestRef = useRef(0);
   const [pages, setPages] = useState<DisplayPage[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [readingMode, setReadingMode] = useState<ReadingMode>("page");
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadDetail, setLoadDetail] = useState("Lendo o índice do arquivo…");
@@ -61,8 +68,15 @@ export function ComicReader({
         Math.max(0, pageIndex + delta),
       );
       setPageIndex(nextIndex);
+      if (readingMode === "vertical") {
+        window.requestAnimationFrame(() => {
+          verticalViewportRef.current
+            ?.querySelector<HTMLElement>(`[data-page-index="${nextIndex}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
     },
-    [pageIndex, pages.length],
+    [pageIndex, pages.length, readingMode],
   );
 
   useEffect(() => {
@@ -128,6 +142,38 @@ export function ComicReader({
   }, [file, fileType, initialProgress]);
 
   useEffect(() => {
+    const viewport = verticalViewportRef.current;
+    if (readingMode !== "vertical" || !viewport) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visiblePages = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((first, second) => second.intersectionRatio - first.intersectionRatio);
+        const page = visiblePages[0]?.target.getAttribute("data-page-index");
+        if (page !== null && page !== undefined) {
+          setPageIndex(Number(page));
+        }
+      },
+      { root: viewport, threshold: [0.25, 0.5, 0.75] },
+    );
+    viewport
+      .querySelectorAll("[data-page-index]")
+      .forEach((page) => observer.observe(page));
+    return () => observer.disconnect();
+  }, [pages, readingMode]);
+
+  useEffect(() => {
+    const modeChanged = previousReadingModeRef.current !== readingMode;
+    previousReadingModeRef.current = readingMode;
+    if (readingMode !== "vertical" || !modeChanged) return;
+    window.requestAnimationFrame(() => {
+      verticalViewportRef.current
+        ?.querySelector<HTMLElement>(`[data-page-index="${pageIndex}"]`)
+        ?.scrollIntoView({ block: "start" });
+    });
+  }, [pageIndex, readingMode]);
+
+  useEffect(() => {
     if (loading || !pages.length) return;
     let active = true;
     const requestId = ++saveRequestRef.current;
@@ -184,6 +230,7 @@ export function ComicReader({
 
   function navigateFromPageClick(event: MouseEvent<HTMLElement>) {
     if (pinchZoom.consumePinchClick()) return;
+    if (readingMode !== "page") return;
     if (event.button !== 0 || !(event.target instanceof HTMLImageElement)) {
       return;
     }
@@ -220,7 +267,9 @@ export function ComicReader({
       className="flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25"
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-2 py-2 backdrop-blur sm:px-4">
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ReaderModeToggle mode={readingMode} onChange={setReadingMode} />
+          <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => changePage(-1)}
@@ -284,10 +333,12 @@ export function ComicReader({
           >
             <Maximize aria-hidden="true" size={17} />
           </button>
+          </div>
         </div>
       </div>
 
       <figure className="grid flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4">
+        {readingMode === "page" && (
         <button
           type="button"
           onClick={() => changePage(-1)}
@@ -297,29 +348,55 @@ export function ComicReader({
         >
           <ArrowLeft aria-hidden="true" size={18} />
         </button>
+        )}
         <div
+          ref={readingMode === "vertical" ? verticalViewportRef : undefined}
           onClick={navigateFromPageClick}
           onPointerDown={pinchZoom.handlePointerDown}
           onPointerMove={pinchZoom.handlePointerMove}
           onPointerUp={pinchZoom.handlePointerUp}
           onPointerCancel={pinchZoom.handlePointerCancel}
-          className={`h-full min-h-0 min-w-0 overflow-auto ${
-            zoom > 1
-              ? "flex items-start justify-start"
-              : "flex items-center justify-center"
+          className={`min-h-0 min-w-0 overflow-auto ${
+            readingMode === "vertical"
+              ? "col-span-3 h-full space-y-0"
+              : `flex h-full ${zoom > 1 ? "items-start justify-start" : "items-center justify-center"}`
           }`}
-          style={{ touchAction: "pan-x pan-y" }}
+          style={{ touchAction: "pan-x pan-y pinch-zoom" }}
         >
-          <img
-            src={currentPage.url}
-            alt={`Página ${pageIndex + 1} de ${pages.length}`}
-            className="max-h-[calc(100dvh-180px)] max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40"
-            style={{
-              zoom,
-              transform: `scale(${pinchZoom.previewScale})`,
-            }}
-          />
+          {readingMode === "vertical" ? (
+            pages.map((page, index) => (
+              <div
+                key={`${page.name}-${index}`}
+                data-page-index={index}
+                className="flex w-full justify-center"
+              >
+                <img
+                  src={page.url}
+                  alt={`Página ${index + 1} de ${pages.length}`}
+                  loading="lazy"
+                  decoding="async"
+                  className="block h-auto max-w-full object-contain"
+                  style={{
+                    zoom,
+                    transform: `scale(${pinchZoom.previewScale})`,
+                  }}
+                />
+              </div>
+            ))
+          ) : (
+            <img
+              src={currentPage.url}
+              alt={`Página ${pageIndex + 1} de ${pages.length}`}
+              decoding="async"
+              className="max-h-[calc(100dvh-180px)] max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40"
+              style={{
+                zoom,
+                transform: `scale(${pinchZoom.previewScale})`,
+              }}
+            />
+          )}
         </div>
+        {readingMode === "page" && (
         <button
           type="button"
           onClick={() => changePage(1)}
@@ -329,6 +406,7 @@ export function ComicReader({
         >
           <ArrowRight aria-hidden="true" size={18} />
         </button>
+        )}
       </figure>
 
       <footer className="flex min-h-9 items-center justify-end border-t border-white/[0.08] bg-[#202435]/70 px-4 text-xs text-slate-400">

@@ -169,6 +169,7 @@ export default function ReaderPage() {
         ) : document?.book.file_type.toUpperCase() === "EPUB" ? (
           <EpubReader
             file={document.file}
+            fallbackTitle={document.book.title}
             initialProgress={document.progress}
             onProgressChange={saveProgress}
           />

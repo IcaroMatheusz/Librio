@@ -18,6 +18,10 @@ import {
 } from "lucide-react";
 
 import {
+  ReaderModeToggle,
+  type ReadingMode,
+} from "./ReaderModeToggle";
+import {
   extractEpub,
   type EpubContentNode,
   type EpubDocument,
@@ -26,6 +30,7 @@ import { ReaderLoading } from "./ReaderLoading";
 
 interface EpubReaderProps {
   file: Blob;
+  fallbackTitle: string;
   initialProgress: number;
   onProgressChange: (progress: number) => Promise<void>;
 }
@@ -40,6 +45,7 @@ const CONTENT_CLASSES: Partial<Record<EpubContentNode["type"], string>> = {
   dl: "my-5",
   dt: "mt-3 font-semibold text-slate-100",
   em: "italic",
+  a: "text-violet-200 underline decoration-violet-200/30 underline-offset-2",
   figcaption: "mt-2 text-center text-sm text-slate-400",
   figure: "my-6 flex flex-col items-center",
   h1: "mb-6 mt-10 text-3xl font-bold tracking-tight text-white",
@@ -49,10 +55,10 @@ const CONTENT_CLASSES: Partial<Record<EpubContentNode["type"], string>> = {
   h5: "mb-3 mt-5 font-bold text-white",
   h6: "mb-2 mt-4 font-bold text-slate-200",
   i: "italic",
-  img: "h-auto max-h-[75dvh] max-w-full rounded-lg object-contain",
+  img: "block h-auto max-h-[calc(100dvh-240px)] max-w-full break-inside-avoid-column rounded-lg object-contain",
   li: "my-1 pl-1",
   ol: "my-5 list-decimal space-y-1 pl-7 marker:text-violet-200",
-  p: "my-5 whitespace-pre-wrap text-[1.05rem] leading-[1.9] text-slate-200",
+  p: "my-5 break-inside-avoid-column whitespace-pre-wrap text-[1.05rem] leading-[1.9] text-slate-200",
   pre: "my-5 overflow-x-auto rounded-xl bg-black/25 p-4 font-mono text-sm",
   section: "my-4",
   small: "text-sm text-slate-400",
@@ -104,6 +110,7 @@ function getChapterPosition(progress: number, chapterCount: number) {
 
 export function EpubReader({
   file,
+  fallbackTitle,
   initialProgress,
   onProgressChange,
 }: EpubReaderProps) {
@@ -112,9 +119,14 @@ export function EpubReader({
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRequestRef = useRef(0);
   const restoredOffsetRef = useRef<number | null>(null);
+  const pendingOffsetRef = useRef<number | null>(null);
+  const chapterProgressRef = useRef(0);
+  const restoreContentRef = useRef(false);
   const [book, setBook] = useState<EpubDocument | null>(null);
   const [chapterIndex, setChapterIndex] = useState(0);
   const [chapterProgress, setChapterProgress] = useState(0);
+  const [readingMode, setReadingMode] = useState<ReadingMode>("page");
+  const [pageWidth, setPageWidth] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -126,9 +138,15 @@ export function EpubReader({
     let active = true;
     let loadedBook: EpubDocument | null = null;
 
-    void extractEpub(file, (completed, total) => {
-      if (active && total > 0) setLoadProgress(Math.round((completed / total) * 100));
-    })
+    void extractEpub(
+      file,
+      (completed, total) => {
+        if (active && total > 0) {
+          setLoadProgress(Math.round((completed / total) * 100));
+        }
+      },
+      fallbackTitle,
+    )
       .then((result) => {
         loadedBook = result;
         if (!active) {
@@ -140,6 +158,8 @@ export function EpubReader({
           result.chapters.length,
         );
         restoredOffsetRef.current = restoredPosition.offset;
+        chapterProgressRef.current = restoredPosition.offset;
+        restoreContentRef.current = true;
         setBook(result);
         setChapterIndex(restoredPosition.index);
         setChapterProgress(restoredPosition.offset);
@@ -159,16 +179,95 @@ export function EpubReader({
       active = false;
       loadedBook?.imageUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [file, initialProgress]);
+  }, [fallbackTitle, file, initialProgress]);
+
+  const handleScroll = useCallback(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    if (readingMode === "vertical" && book) {
+      const chapters = Array.from(
+        content.querySelectorAll<HTMLElement>("[data-epub-chapter]"),
+      );
+      const viewport = content.getBoundingClientRect();
+      const midpoint = viewport.top + content.clientHeight / 2;
+      const activeChapter =
+        chapters.find(
+          (chapter) => chapter.getBoundingClientRect().bottom > midpoint,
+        ) ?? chapters[chapters.length - 1];
+      if (activeChapter) {
+        const index = Number(activeChapter.dataset.epubChapter);
+        const bounds = activeChapter.getBoundingClientRect();
+        const progress = Math.min(
+          1,
+          Math.max(0, (midpoint - bounds.top) / bounds.height),
+        );
+        setChapterIndex(index);
+        chapterProgressRef.current = progress;
+        setChapterProgress(progress);
+      }
+      return;
+    }
+
+    const scrollRange = content.scrollWidth - content.clientWidth;
+    const progress =
+      scrollRange > 0 ? content.scrollLeft / scrollRange : 1;
+    chapterProgressRef.current = progress;
+    setChapterProgress(progress);
+  }, [book, readingMode]);
 
   useEffect(() => {
     const content = contentRef.current;
-    if (!book || !content) return;
+    if (!book || !content || !restoreContentRef.current) return;
 
-    const offset = restoredOffsetRef.current;
+    restoreContentRef.current = false;
+    const offset =
+      pendingOffsetRef.current ??
+      restoredOffsetRef.current ??
+      chapterProgressRef.current;
+    pendingOffsetRef.current = null;
     restoredOffsetRef.current = null;
-    content.scrollTop = offset === null ? 0 : (content.scrollHeight - content.clientHeight) * offset;
-  }, [book, chapterIndex]);
+    window.requestAnimationFrame(() => {
+      if (readingMode === "page") {
+        content.scrollLeft =
+          (content.scrollWidth - content.clientWidth) * offset;
+        content.scrollTop = 0;
+      } else {
+        const chapter = content.querySelector<HTMLElement>(
+          `[data-epub-chapter="${chapterIndex}"]`,
+        );
+        if (chapter) {
+          const chapterTop =
+            content.scrollTop +
+            chapter.getBoundingClientRect().top -
+            content.getBoundingClientRect().top;
+          content.scrollTop =
+            chapterTop +
+            offset * chapter.offsetHeight -
+            content.clientHeight / 2;
+        }
+        content.scrollLeft = 0;
+      }
+      handleScroll();
+    });
+  }, [book, chapterIndex, handleScroll, readingMode]);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const measurePageWidth = () => {
+      const style = window.getComputedStyle(content);
+      const horizontalPadding =
+        Number.parseFloat(style.paddingLeft) +
+        Number.parseFloat(style.paddingRight);
+      setPageWidth(Math.max(160, content.clientWidth - horizontalPadding));
+    };
+    const observer = new ResizeObserver(() => {
+      measurePageWidth();
+    });
+    observer.observe(content);
+    measurePageWidth();
+    return () => observer.disconnect();
+  }, [book]);
 
   const currentProgress = book
     ? Math.min(
@@ -219,39 +318,83 @@ export function EpubReader({
   const changeChapter = useCallback(
     (direction: number) => {
       if (!book) return;
-      setChapterIndex((current) =>
-        Math.min(book.chapters.length - 1, Math.max(0, current + direction)),
+      const nextIndex = Math.min(
+        book.chapters.length - 1,
+        Math.max(0, chapterIndex + direction),
       );
+      if (nextIndex === chapterIndex) return;
+      restoreContentRef.current = true;
+      pendingOffsetRef.current = direction < 0 ? 1 : 0;
+      chapterProgressRef.current = pendingOffsetRef.current;
+      setChapterIndex(nextIndex);
       setChapterProgress(0);
     },
-    [book],
+    [book, chapterIndex],
   );
 
-  function handleScroll() {
-    const content = contentRef.current;
-    if (!content) return;
-    const scrollRange = content.scrollHeight - content.clientHeight;
-    setChapterProgress(
-      scrollRange > 0 ? content.scrollTop / scrollRange : 1,
-    );
+  const turnPage = useCallback(
+    (direction: number) => {
+      const content = contentRef.current;
+      if (!content || !book) return;
+      const pageStep = pageWidth + 32;
+      const nextScrollLeft = content.scrollLeft + direction * pageStep;
+      const maxScrollLeft = content.scrollWidth - content.clientWidth;
+      if (direction > 0 && nextScrollLeft > maxScrollLeft + 1) {
+        changeChapter(1);
+        return;
+      }
+      if (direction < 0 && nextScrollLeft < 0) {
+        changeChapter(-1);
+        return;
+      }
+      content.scrollTo({
+        left: Math.max(0, Math.min(maxScrollLeft, nextScrollLeft)),
+        behavior: "smooth",
+      });
+    },
+    [book, changeChapter, pageWidth],
+  );
+
+  function changeReadingMode(mode: ReadingMode) {
+    if (mode === readingMode) return;
+    restoreContentRef.current = true;
+    setReadingMode(mode);
   }
 
   function handlePageClick(event: MouseEvent<HTMLDivElement>) {
-    if (event.button !== 0 || !(event.target instanceof HTMLElement)) return;
+    if (
+      readingMode !== "page" ||
+      event.button !== 0 ||
+      !(event.target instanceof HTMLElement)
+    ) {
+      return;
+    }
     const bounds = event.currentTarget.getBoundingClientRect();
-    changeChapter(event.clientX >= bounds.left + bounds.width / 2 ? 1 : -1);
+    turnPage(event.clientX >= bounds.left + bounds.width / 2 ? 1 : -1);
   }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.target instanceof HTMLInputElement) return;
-      if (event.key === "ArrowLeft") changeChapter(-1);
-      if (event.key === "ArrowRight") changeChapter(1);
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLSelectElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        if (readingMode === "page") turnPage(-1);
+        else changeChapter(-1);
+      }
+      if (event.key === "ArrowRight") {
+        if (readingMode === "page") turnPage(1);
+        else changeChapter(1);
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [changeChapter]);
+  }, [changeChapter, readingMode, turnPage]);
 
   if (loading) {
     return (
@@ -293,43 +436,117 @@ export function EpubReader({
             </p>
           </div>
         </div>
-        <span
-          aria-live="polite"
-          className="shrink-0 text-xs font-semibold tabular-nums text-slate-300"
-        >
-          Capítulo {chapterIndex + 1} de {book.chapters.length}
-        </span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <ReaderModeToggle
+            mode={readingMode}
+            onChange={changeReadingMode}
+          />
+          <label className="sr-only" htmlFor="epub-chapter">
+            Ir para capítulo
+          </label>
+          <select
+            id="epub-chapter"
+            value={chapterIndex}
+            onChange={(event) => {
+              pendingOffsetRef.current = 0;
+              restoreContentRef.current = true;
+              chapterProgressRef.current = 0;
+              setChapterIndex(Number(event.target.value));
+              setChapterProgress(0);
+            }}
+            className="max-w-40 rounded-lg border border-white/10 bg-[#171A27] px-2 py-2 text-xs text-slate-200 focus-visible:outline-2 focus-visible:outline-violet-200"
+          >
+            {book.chapters.map((chapter, index) => (
+              <option key={chapter.id} value={index}>
+                {index + 1}. {chapter.title}
+              </option>
+            ))}
+          </select>
+        </div>
       </header>
 
-      <div className="grid flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-stretch gap-1 overflow-hidden bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4">
-        <button
+      <div
+      className={`grid flex-1 items-stretch gap-1 overflow-hidden bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4 ${
+        readingMode === "page"
+          ? "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
+          : "grid-cols-1"
+      }`}
+      >
+      {readingMode === "page" && (
+      <button
           type="button"
-          onClick={() => changeChapter(-1)}
-          disabled={chapterIndex === 0}
-          aria-label="Capítulo anterior"
+          onClick={() =>
+            readingMode === "page" ? turnPage(-1) : changeChapter(-1)
+          }
+          disabled={chapterIndex === 0 && chapterProgress === 0}
+          aria-label={
+            readingMode === "page" ? "Página anterior" : "Capítulo anterior"
+          }
           className="z-10 my-auto inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
         >
           <ArrowLeft aria-hidden="true" size={18} />
         </button>
+        )}
         <div
           ref={contentRef}
           onScroll={handleScroll}
           onClick={handlePageClick}
-          className="min-w-0 overflow-y-auto rounded-xl px-4 py-6 sm:px-8 sm:py-10 lg:px-14"
+          className={`min-h-0 min-w-0 rounded-xl px-4 py-6 sm:px-8 sm:py-10 lg:px-14 ${
+            readingMode === "page"
+              ? "overflow-x-auto overflow-y-hidden"
+              : "overflow-y-auto"
+          }`}
         >
-          <article className="mx-auto max-w-3xl">
-            {renderContent(currentChapter.content, currentChapter.id)}
-          </article>
+          {readingMode === "page" ? (
+            <article
+              className="h-full max-w-none"
+              style={{
+                height: "100%",
+                columnWidth: pageWidth ? `${pageWidth}px` : "auto",
+                columnGap: "2rem",
+                columnFill: "auto",
+              }}
+            >
+              {renderContent(currentChapter.content, currentChapter.id)}
+            </article>
+          ) : (
+            <div className="mx-auto max-w-3xl space-y-12">
+              {book.chapters.map((chapter, index) => (
+                <article
+                  key={chapter.id}
+                  data-epub-chapter={index}
+                  aria-label={chapter.title}
+                  className="border-b border-white/10 pb-8 last:border-b-0"
+                >
+                  {index > 0 && (
+                    <h2 className="mb-8 mt-4 text-center text-lg font-bold text-violet-200">
+                      {chapter.title}
+                    </h2>
+                  )}
+                  {renderContent(chapter.content, chapter.id)}
+                </article>
+              ))}
+            </div>
+          )}
         </div>
+        {readingMode === "page" && (
         <button
           type="button"
-          onClick={() => changeChapter(1)}
-          disabled={chapterIndex === book.chapters.length - 1}
-          aria-label="Próximo capítulo"
+          onClick={() =>
+            readingMode === "page" ? turnPage(1) : changeChapter(1)
+          }
+          disabled={
+            chapterIndex === book.chapters.length - 1 &&
+            chapterProgress >= 1
+          }
+          aria-label={
+            readingMode === "page" ? "Próxima página" : "Próximo capítulo"
+          }
           className="z-10 my-auto inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
         >
           <ArrowRight aria-hidden="true" size={18} />
         </button>
+        )}
       </div>
 
       <footer className="flex min-h-11 items-center justify-between gap-3 border-t border-white/[0.08] bg-[#202435]/70 px-3 text-xs text-slate-400 sm:px-4">

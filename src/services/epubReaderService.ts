@@ -12,6 +12,7 @@ const MAX_EPUB_IMAGE_BYTES = 20 * 1024 * 1024;
 const EPUB_IMAGE_EXTENSIONS = /\.(avif|gif|jpe?g|png|webp)$/i;
 const SAFE_TAGS = new Set<EpubTag>([
   "blockquote",
+  "a",
   "br",
   "code",
   "dd",
@@ -54,6 +55,7 @@ export type EpubTag =
   | "br"
   | "code"
   | "dd"
+  | "a"
   | "div"
   | "dl"
   | "dt"
@@ -159,6 +161,46 @@ function safeTitle(content: string, fallback: string): string {
   return title.slice(0, 180) || fallback;
 }
 
+function getImageSource(element: Element): string | null {
+  return [
+    element.getAttribute("src"),
+    element.getAttribute("data-src"),
+    element.getAttribute("href"),
+    element.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+  ].find((source) => source?.trim()) ?? null;
+}
+
+async function toSafeImage(
+  source: string | null,
+  alt: string,
+  chapterPath: string,
+  entries: Map<string, FileEntry>,
+  imageUrlsByPath: Map<string, string>,
+  allImageUrls: Set<string>,
+): Promise<EpubContentNode[]> {
+  const path = source
+    ? resolveArchivePath(chapterPath.split("/").slice(0, -1).join("/"), source)
+    : null;
+  const imageEntry = path ? entries.get(path) : undefined;
+  if (
+    !path ||
+    !imageEntry ||
+    !EPUB_IMAGE_EXTENSIONS.test(path) ||
+    (imageEntry.uncompressedSize ?? 0) > MAX_EPUB_IMAGE_BYTES
+  ) {
+    return [];
+  }
+
+  let url = imageUrlsByPath.get(path);
+  if (!url) {
+    const imageBlob = await imageEntry.getData(new BlobWriter());
+    url = URL.createObjectURL(imageBlob);
+    imageUrlsByPath.set(path, url);
+    allImageUrls.add(url);
+  }
+  return [{ type: "img", src: url, alt }];
+}
+
 async function toSafeContent(
   node: Node,
   chapterPath: string,
@@ -173,43 +215,42 @@ async function toSafeContent(
   if (!(node instanceof Element)) return [];
 
   const tagName = node.localName.toLowerCase();
+  const epubType =
+    node.getAttributeNS("http://www.idpf.org/2007/ops", "type") ??
+    node.getAttribute("epub:type") ??
+    "";
   if (
-    ["script", "style", "noscript", "svg", "iframe", "object", "form"].includes(
+    ["script", "style", "noscript", "iframe", "object", "form", "nav"].includes(
       tagName,
-    )
+    ) ||
+    node.getAttribute("role") === "navigation" ||
+    /(^|\s)(toc|doc-toc|landmarks|page-list)(\s|$)/i.test(epubType)
   ) {
     return [];
   }
 
-  if (tagName === "img") {
-    const source = node.getAttribute("src") ?? node.getAttribute("data-src");
-    const path = source
-      ? resolveArchivePath(chapterPath.split("/").slice(0, -1).join("/"), source)
-      : null;
-    const imageEntry = path ? entries.get(path) : undefined;
-    if (
-      !path ||
-      !imageEntry ||
-      !EPUB_IMAGE_EXTENSIONS.test(path) ||
-      (imageEntry.uncompressedSize ?? 0) > MAX_EPUB_IMAGE_BYTES
-    ) {
-      return [];
-    }
+  if (tagName === "svg") {
+    const svgImage = node.getElementsByTagNameNS("*", "image")[0];
+    if (!svgImage) return [];
+    return toSafeImage(
+      getImageSource(svgImage),
+      "Capa do livro",
+      chapterPath,
+      entries,
+      imageUrlsByPath,
+      allImageUrls,
+    );
+  }
 
-    let url = imageUrlsByPath.get(path);
-    if (!url) {
-      const imageBlob = await imageEntry.getData(new BlobWriter());
-      url = URL.createObjectURL(imageBlob);
-      imageUrlsByPath.set(path, url);
-      allImageUrls.add(url);
-    }
-    return [
-      {
-        type: "img",
-        src: url,
-        alt: node.getAttribute("alt") ?? "",
-      },
-    ];
+  if (tagName === "img") {
+    return toSafeImage(
+      getImageSource(node),
+      node.getAttribute("alt") ?? "",
+      chapterPath,
+      entries,
+      imageUrlsByPath,
+      allImageUrls,
+    );
   }
 
   const safeTag = SAFE_TAGS.has(tagName as EpubTag)
@@ -233,6 +274,7 @@ async function readEntryText(entry: FileEntry): Promise<string> {
 export async function extractEpub(
   archive: Blob,
   onProgress?: EpubProgress,
+  fallbackTitle?: string,
 ): Promise<EpubDocument> {
   const reader = new ZipReader(new BlobReader(archive));
   const imageUrls = new Set<string>();
@@ -286,7 +328,10 @@ export async function extractEpub(
       throw new Error("O EPUB não contém um manifesto ou sumário de leitura.");
     }
 
-    const manifest = new Map<string, { path: string; mediaType: string }>();
+    const manifest = new Map<
+      string,
+      { path: string; mediaType: string; properties: string }
+    >();
     for (const item of elementChildren(manifestElement, "item")) {
       const id = item.getAttribute("id");
       const href = item.getAttribute("href");
@@ -296,6 +341,7 @@ export async function extractEpub(
         manifest.set(id, {
           path,
           mediaType: item.getAttribute("media-type") ?? "",
+          properties: item.getAttribute("properties") ?? "",
         });
       }
     }
@@ -303,8 +349,16 @@ export async function extractEpub(
     const spineItems = elementChildren(spineElement, "itemref")
       .map((item) => manifest.get(item.getAttribute("idref") ?? ""))
       .filter(
-        (item): item is { path: string; mediaType: string } =>
-          item !== undefined && /xhtml|html/i.test(item.mediaType),
+        (
+          item,
+        ): item is {
+          path: string;
+          mediaType: string;
+          properties: string;
+        } =>
+          item !== undefined &&
+          /xhtml|html/i.test(item.mediaType) &&
+          !item.properties.split(/\s+/).includes("nav"),
       );
     if (spineItems.length === 0 || spineItems.length > 1000) {
       throw new Error("Este EPUB não possui capítulos compatíveis para leitura.");
@@ -331,7 +385,16 @@ export async function extractEpub(
       const contentRoot =
         contentDocument.body ?? contentDocument.documentElement;
       const heading = contentRoot.querySelector("h1, h2, h3, title");
-      const fallbackTitle =
+      const headingText = heading?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+      const looksLikeOutline =
+        /^(document outline|table of contents|contents|sumário|índice)$/i.test(
+          headingText,
+        ) && contentRoot.querySelectorAll("a").length >= 3;
+      if (looksLikeOutline) {
+        onProgress?.(index + 1, spineItems.length);
+        continue;
+      }
+      const generatedTitle =
         item.path.split("/").pop()?.replace(/\.[^.]+$/, "") ??
         `Capítulo ${index + 1}`;
       const content = (
@@ -347,20 +410,28 @@ export async function extractEpub(
           ),
         )
       ).flat();
+      const chapterTitle = /^(cover|front cover)$/i.test(headingText)
+        ? "Capa"
+        : /^(index|untitled)$/i.test(headingText)
+          ? `Capítulo ${index + 1}`
+          : headingText || `Capítulo ${index + 1}`;
 
       chapters.push({
         id: item.path,
-        title: safeTitle(
-          heading?.textContent ?? fallbackTitle,
-          `Capítulo ${index + 1}`,
-        ),
+        title: safeTitle(chapterTitle, generatedTitle),
         content,
       });
       onProgress?.(index + 1, spineItems.length);
     }
 
+    if (chapters.length === 0) {
+      throw new Error("Este EPUB contém apenas sumários, sem capítulos de leitura.");
+    }
+
     return {
-      title: safeTitle(packageTitle, "Livro EPUB"),
+      title: /^(untitled|index|)$/i.test(packageTitle.trim())
+        ? safeTitle(fallbackTitle ?? "", "Livro EPUB")
+        : safeTitle(packageTitle, fallbackTitle ?? "Livro EPUB"),
       chapters,
       imageUrls: [...imageUrls],
     };
