@@ -1,5 +1,7 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
+import { Loading } from "./components/Loading";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/ProtectedRoute";
 
@@ -11,6 +13,8 @@ import ErrorScreen from "./pages/error/ErrorScreen";
 import Library from "./pages/library/LibraryPage";
 import Upload from "./pages/library/UploadPage";
 import Reader from "./pages/reader/ReaderPage";
+
+const Download = lazy(() => import("./pages/library/DownloadPage"));
 
 export default function App() {
   return (
@@ -29,6 +33,14 @@ export default function App() {
               <Route path="/profile" element={<Profile />} />
               <Route path="/library" element={<Library />} />
               <Route path="/upload" element={<Upload />} />
+              <Route
+                path="/download"
+                element={
+                  <Suspense fallback={<Loading />}>
+                    <Download />
+                  </Suspense>
+                }
+              />
               <Route path="/reader/:bookId" element={<Reader />} />
             </Route>
             <Route path="*" element={<ErrorScreen />} />

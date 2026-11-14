@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
   BookOpen,
   BookPlus,
+  Download,
   LibraryBig,
   RefreshCw,
   Sparkles,
@@ -11,7 +12,11 @@ import { Link } from "react-router-dom";
 
 import spawnReading from "../../assets/spawnreading-library.png";
 import { BookCard } from "../../components/BookCard";
-import { getBooks } from "../../services/booksService";
+import {
+  BookActionDialog,
+  type BookActionDialogState,
+} from "../../components/library/BookActionDialog";
+import { deleteBook, getBooks, renameBook } from "../../services/booksService";
 import type { Book } from "../../types/database";
 
 export default function LibraryPage() {
@@ -19,6 +24,11 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [dialog, setDialog] = useState<BookActionDialogState | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -47,6 +57,64 @@ export default function LibraryPage() {
       active = false;
     };
   }, [reloadKey]);
+
+  function openDialog(type: BookActionDialogState["type"], book: Book) {
+    setDialog({ type, book });
+    setTitleDraft(book.title);
+    setActionError(null);
+    setActionNotice(null);
+  }
+
+  async function handleRename(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!dialog || dialog.type !== "rename") return;
+
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const updatedBook = await renameBook(dialog.book.id, titleDraft);
+      setBooks((currentBooks) =>
+        currentBooks.map((book) =>
+          book.id === updatedBook.id
+            ? { ...book, title: updatedBook.title }
+            : book,
+        ),
+      );
+      setDialog(null);
+    } catch (caughtError) {
+      setActionError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível renomear a obra.",
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!dialog || dialog.type !== "delete") return;
+
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const warning = await deleteBook(dialog.book);
+      setBooks((currentBooks) =>
+        currentBooks.filter((book) => book.id !== dialog.book.id),
+      );
+      setDialog(null);
+      setActionNotice(warning);
+    } catch (caughtError) {
+      setActionError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível excluir a obra.",
+      );
+      setReloadKey((key) => key + 1);
+    } finally {
+      setActionBusy(false);
+    }
+  }
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#171A27] text-white">
@@ -116,11 +184,15 @@ export default function LibraryPage() {
               aria-hidden="true"
               className="pointer-events-none absolute inset-y-0 right-0 z-[1] w-3/4 bg-gradient-to-l from-transparent via-[#28243d]/15 to-[#28243d]/80"
             />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -bottom-16 right-[8%] z-0 size-72 rounded-full bg-orange-500/25 blur-[90px] sm:size-96 sm:bg-orange-400/30"
+            />
             <img
               src={spawnReading}
               alt=""
               aria-hidden="true"
-              className="pointer-events-none absolute -bottom-3 -right-8 z-0 h-[92%] w-[56%] object-contain object-bottom drop-shadow-[0_16px_30px_rgba(0,0,0,0.3)] sm:-bottom-5 sm:right-0 sm:h-[102%] sm:w-[49%] lg:-bottom-7 lg:right-[1%] lg:h-[112%] lg:w-[45%]"
+              className="pointer-events-none absolute -bottom-3 -right-8 z-0 h-[92%] w-[56%] object-contain object-bottom brightness-125 contrast-110 saturate-125 drop-shadow-[0_0_22px_rgba(255,132,46,0.58)] drop-shadow-[0_18px_42px_rgba(255,76,23,0.32)] sm:-bottom-5 sm:right-0 sm:h-[102%] sm:w-[49%] lg:-bottom-7 lg:right-[1%] lg:h-[112%] lg:w-[45%]"
             />
           </div>
         </section>
@@ -144,6 +216,23 @@ export default function LibraryPage() {
               </span>
             )}
           </header>
+
+          <Link
+            to="/download"
+            className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-violet-200/20 hover:bg-white/[0.06] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-violet-200 sm:text-sm"
+          >
+            <Download aria-hidden="true" size={16} className="text-violet-200" />
+            Ler um arquivo do seu dispositivo
+          </Link>
+
+          {actionNotice && (
+            <p
+              role="status"
+              className="mb-5 rounded-xl border border-amber-200/15 bg-amber-200/[0.05] px-4 py-3 text-sm leading-6 text-amber-100"
+            >
+              {actionNotice}
+            </p>
+          )}
 
           {loading ? (
             <div
@@ -203,19 +292,32 @@ export default function LibraryPage() {
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5">
               {books.map((book) => (
-                <Link
+                <BookCard
                   key={book.id}
+                  book={book}
+                  showFormat
                   to={`/reader/${book.id}`}
-                  aria-label={`Abrir ${book.title}, de ${book.author}`}
-                  className="min-w-0 rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
-                >
-                  <BookCard book={book} showFormat />
-                </Link>
+                  onRename={() => openDialog("rename", book)}
+                  onDelete={() => openDialog("delete", book)}
+                />
               ))}
             </div>
           )}
         </section>
       </div>
+
+      {dialog && (
+        <BookActionDialog
+          dialog={dialog}
+          titleDraft={titleDraft}
+          actionError={actionError}
+          actionBusy={actionBusy}
+          onTitleChange={(event) => setTitleDraft(event.target.value)}
+          onRename={handleRename}
+          onDelete={() => void handleDelete()}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </main>
   );
 }

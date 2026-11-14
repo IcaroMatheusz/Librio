@@ -171,6 +171,90 @@ export async function getBookById(bookId: string): Promise<Book> {
   return book;
 }
 
+export async function renameBook(bookId: string, title: string): Promise<Book> {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle) {
+    throw new Error("O título da obra não pode ficar vazio.");
+  }
+  if (normalizedTitle.length > 200) {
+    throw new Error("O título deve ter no máximo 200 caracteres.");
+  }
+
+  const client = await getSupabaseClient();
+  const { data, error } = await client
+    .from("books")
+    .update({ title: normalizedTitle })
+    .eq("id", bookId)
+    .select(BOOK_FIELDS)
+    .single();
+
+  if (error) {
+    throw new Error(`Não foi possível renomear a obra: ${error.message}`);
+  }
+  return data;
+}
+
+export async function deleteBook(book: Book): Promise<string | null> {
+  const client = await getSupabaseClient();
+  const storage = await getUserStorage();
+  const filePaths = [book.file_path];
+  let coverSize = 0;
+  if (book.cover_url) {
+    const userFolder = book.file_path.slice(
+      0,
+      book.file_path.lastIndexOf("/") + 1,
+    );
+    const coverPath = `${userFolder}${book.id}-cover.jpg`;
+    const { data: cover, error: coverError } = await client.storage
+      .from(BOOKS_BUCKET)
+      .download(coverPath);
+
+    if (coverError && coverError.statusCode !== "404") {
+      throw new Error(
+        `Não foi possível verificar a capa antes de excluir a obra: ${coverError.message}`,
+      );
+    }
+    if (cover) {
+      coverSize = cover.size;
+      filePaths.push(coverPath);
+    }
+  }
+
+  const { data: deleted, error: deleteError } = await client
+    .from("books")
+    .delete()
+    .eq("id", book.id)
+    .eq("user_id", book.user_id)
+    .select("id")
+    .single();
+
+  if (deleteError) {
+    throw new Error(`Não foi possível excluir a obra: ${deleteError.message}`);
+  }
+  if (!deleted) {
+    throw new Error("A obra não foi encontrada ou não pode ser excluída.");
+  }
+
+  const cleanupError = await removeUploadedFiles(client, filePaths);
+  if (cleanupError) {
+    return `A obra foi removida da biblioteca, mas não foi possível limpar os arquivos do armazenamento: ${cleanupError}`;
+  }
+
+  const { error: storageError } = await client
+    .from("user_storage")
+    .update({
+      used_bytes: Math.max(0, storage.used_bytes - book.file_size - coverSize),
+    })
+    .eq("user_id", book.user_id)
+    .select("user_id")
+    .single();
+
+  if (storageError) {
+    return `A obra foi excluída, mas não foi possível atualizar o espaço utilizado: ${storageError.message}`;
+  }
+  return null;
+}
+
 export async function getBookFile(filePath: string): Promise<Blob> {
   const client = await getSupabaseClient();
   const { data, error } = await client.storage
@@ -207,7 +291,7 @@ export async function uploadBook(
     storage.used_bytes + file.size + (coverPreview?.size ?? 0) <=
       storage.max_bytes;
   const totalSize = file.size + (canStoreCover ? (coverPreview?.size ?? 0) : 0);
-  if (storage.used_bytes + totalSize > storage.max_bytes) {
+  if (storage.used_bytes + file.size > storage.max_bytes) {
     throw new Error("Este arquivo ultrapassa o espaço disponível na sua biblioteca.");
   }
 
@@ -304,10 +388,14 @@ export async function uploadBook(
     throw new Error(`Não foi possível salvar a obra: ${insertError.message}`);
   }
 
-  const storedSize = file.size + (savedCoverPath && coverPreview ? coverPreview.size : 0);
   const { error: storageError } = await client
     .from("user_storage")
-    .update({ used_bytes: storage.used_bytes + storedSize })
+    .update({
+      used_bytes:
+        storage.used_bytes +
+        file.size +
+        (savedCoverPath && coverPreview ? coverPreview.size : 0),
+    })
     .eq("user_id", userId)
     .select("user_id")
     .single();

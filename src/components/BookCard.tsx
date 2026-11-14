@@ -1,4 +1,5 @@
-import { BookOpen } from "lucide-react";
+import { BookOpen, Pencil, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import type { Book } from "../types/database";
 
@@ -6,15 +7,21 @@ interface BookCardProps {
   book: Book;
   progress?: number;
   showFormat?: boolean;
+  to?: string;
+  onRename?: () => void;
+  onDelete?: () => void;
 }
 
 export function BookCard({
   book,
   progress,
   showFormat = false,
+  to,
+  onRename,
+  onDelete,
 }: BookCardProps) {
-  return (
-    <article className="group min-w-0 overflow-hidden rounded-2xl border border-white/[0.09] bg-[#202435] shadow-lg shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-violet-300/30 hover:shadow-xl hover:shadow-violet-950/20">
+  const content = (
+    <>
       <div className="relative aspect-[2/3] overflow-hidden bg-gradient-to-br from-[#322b55] via-[#222638] to-[#171A27]">
         {book.cover_url ? (
           <img
@@ -53,10 +60,16 @@ export function BookCard({
         </span>
       </div>
       <div className="p-3.5 sm:p-4">
-        <h3 className="truncate text-sm font-bold text-white sm:text-base" title={book.title}>
+        <h3
+          className="truncate text-sm font-bold text-white sm:text-base"
+          title={book.title}
+        >
           {book.title}
         </h3>
-        <p className="mt-1 truncate text-xs text-slate-400 sm:text-sm" title={book.author}>
+        <p
+          className="mt-1 truncate text-xs text-slate-400 sm:text-sm"
+          title={book.author}
+        >
           {book.author}
         </p>
         {progress !== undefined && (
@@ -81,6 +94,44 @@ export function BookCard({
           </div>
         )}
       </div>
+    </>
+  );
+
+  return (
+    <article className="group min-w-0 overflow-hidden rounded-2xl border border-white/[0.09] bg-[#202435] shadow-lg shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-violet-300/30 hover:shadow-xl hover:shadow-violet-950/20">
+      {to ? (
+        <Link
+          to={to}
+          aria-label={`Abrir ${book.title}`}
+          className="block rounded-t-2xl focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-violet-200"
+        >
+          {content}
+        </Link>
+      ) : (
+        content
+      )}
+      {onRename && onDelete && (
+        <footer className="flex items-center gap-2 border-t border-white/[0.07] px-3 py-2.5">
+          <button
+            type="button"
+            onClick={onRename}
+            aria-label={`Renomear ${book.title}`}
+            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2 text-xs font-semibold text-slate-200 transition hover:border-violet-200/20 hover:bg-violet-200/[0.07] hover:text-violet-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 sm:gap-2 sm:text-sm"
+          >
+            <Pencil aria-hidden="true" size={14} />
+            Renomear
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`Excluir ${book.title}`}
+            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-rose-200/10 bg-rose-200/[0.03] px-2 text-xs font-semibold text-rose-200 transition hover:border-rose-200/25 hover:bg-rose-200/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200 sm:gap-2 sm:text-sm"
+          >
+            <Trash2 aria-hidden="true" size={14} />
+            Excluir
+          </button>
+        </footer>
+      )}
     </article>
   );
 }
