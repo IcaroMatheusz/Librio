@@ -7,6 +7,7 @@ import { ContinueReading } from "../../components/dashboard/ContinueReading";
 import { DashboardError } from "../../components/dashboard/DashboardError";
 import { DashboardBanner } from "../../components/dashboard/DashboardBanner";
 import { DashboardHeader } from "../../components/dashboard/DashboardHeader";
+import { LocalReadingBanner } from "../../components/dashboard/LocalReadingBanner";
 import { DashboardSummary } from "../../components/dashboard/DashboardSummary";
 import { StorageIndicator } from "../../components/StorageIndicator";
 import { useDashboardData } from "../../hooks/useDashboardData";
@@ -45,6 +46,8 @@ export default function DashboardPage() {
             Seus livros e histórias, prontos para continuar.
           </p>
         </section>
+
+        <LocalReadingBanner />
 
         <ContinueReading
           book={data.recentReads[0] ?? null}

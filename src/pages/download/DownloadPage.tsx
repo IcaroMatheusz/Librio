@@ -1,0 +1,228 @@
+import { useEffect, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Check,
+  Download,
+  Monitor,
+  Smartphone,
+  Sparkles,
+} from "lucide-react";
+import { Link } from "react-router-dom";
+
+import harryPotter from "../../assets/harrypotter.png";
+import spawn from "../../assets/spawn.webp";
+import bleach from "../../assets/bleach.png";
+
+const CHARACTERS = [
+  {
+    character: "Spawn",
+    category: "HQs",
+    image: spawn,
+    description: "Suas HQs reunidas em um só lugar.",
+    imageClass:
+      "w-auto max-w-[96%] object-contain object-bottom brightness-110 contrast-110",
+    accentClass: "text-rose-200",
+  },
+  {
+    character: "Ichigo e Rukia",
+    category: "Mangás",
+    image: bleach,
+    description: "Acompanhe suas histórias favoritas, capítulo por capítulo.",
+    imageClass:
+      "w-auto max-w-[90%] object-contain object-bottom",
+    accentClass: "text-orange-200",
+  },
+  {
+    character: "Harry Potter",
+    category: "Livros",
+    image: harryPotter,
+    description: "Volte aos livros e continue de onde parou.",
+    imageClass:
+      "w-auto max-w-[94%] object-contain object-bottom",
+    accentClass: "text-amber-200",
+  },
+];
+
+export default function DownloadPage() {
+  const [activeCharacter, setActiveCharacter] = useState(0);
+  const character = CHARACTERS[activeCharacter];
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setActiveCharacter((index) => (index + 1) % CHARACTERS.length);
+    }, 3000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  return (
+    <main className="relative min-h-screen overflow-hidden bg-[#171A27] text-white">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -left-44 top-52 size-[30rem] rounded-full bg-violet-700/10 blur-3xl"
+      />
+      <header className="relative border-b border-white/[0.07] bg-[#171A27]/85">
+        <nav className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-8 lg:px-12">
+          <Link
+            to="/dashboard"
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl px-2 text-sm font-semibold text-slate-300 transition hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
+          >
+            <ArrowLeft aria-hidden="true" size={18} />
+            Painel
+          </Link>
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-2 text-sm font-extrabold tracking-wide text-violet-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
+          >
+            <BookOpen
+              aria-hidden="true"
+              size={19}
+              className="text-violet-300"
+            />
+            Librio
+          </Link>
+        </nav>
+      </header>
+
+      <div className="relative mx-auto max-w-7xl px-4 pb-14 pt-7 sm:px-8 sm:pb-16 sm:pt-10 lg:px-12">
+        <section
+          aria-labelledby="download-title"
+          className="relative isolate overflow-hidden rounded-[2rem] border border-violet-200/20 bg-[#211d36] shadow-[0_24px_70px_-30px_rgba(124,58,237,0.6)]"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse 90% 70% at 78% 68%, rgba(91,61,153,.24), transparent 76%), radial-gradient(ellipse 80% 65% at 12% 8%, rgba(124,45,18,.18), transparent 72%)",
+          }}
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 z-0 opacity-30"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle, rgba(221,214,254,.48) 1px, transparent 1.5px)",
+              backgroundSize: "18px 18px",
+            }}
+          />
+          <div className="relative z-10 grid grid-cols-1 lg:min-h-[520px] lg:grid-cols-[1fr_0.9fr]">
+            <div className="relative z-20 row-start-1 flex flex-col items-start px-5 pb-[320px] pt-8 sm:px-10 sm:pt-10 lg:col-start-1 lg:justify-center lg:px-14 lg:py-12">
+              <span className="inline-flex items-center gap-2 rounded-full border border-violet-200/25 bg-[#171426]/65 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-violet-100 sm:text-xs sm:tracking-[0.18em]">
+                <Sparkles aria-hidden="true" size={14} />
+                Em preparação
+              </span>
+              <h1
+                id="download-title"
+                className="mt-5 text-4xl font-black leading-[1.05] tracking-[-0.05em] text-white sm:text-5xl lg:text-6xl"
+              >
+                Librio
+                <span className="text-violet-300">.</span>
+                <br />
+                Onde você estiver.
+              </h1>
+              <p className="mt-4 max-w-lg text-sm leading-6 text-violet-100/85 sm:text-base sm:leading-7">
+                Estamos preparando o aplicativo Librio para desktop e
+                dispositivos móveis. Os instaladores ainda não estão disponíveis
+                para download.
+              </p>
+              <p className="mt-3 max-w-lg text-xs leading-5 text-slate-400 sm:text-sm">
+                Enquanto isso, continue usando o Librio pela web. A leitura no
+                navegador funciona com as obras enviadas e armazenadas na sua
+                biblioteca na nuvem.
+              </p>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled
+                  aria-describedby="download-title"
+                  className="inline-flex min-h-11 cursor-not-allowed items-center gap-2 rounded-xl bg-violet-300/70 px-4 py-2.5 text-sm font-extrabold text-[#211a34]/80 opacity-80 sm:px-5"
+                >
+                  <Download aria-hidden="true" size={17} />
+                  Downloads em breve
+                </button>
+                <Link
+                  to="/library"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-bold text-slate-100 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:px-5"
+                >
+                  Acessar biblioteca
+                  <ArrowRight aria-hidden="true" size={16} />
+                </Link>
+              </div>
+            </div>
+
+            <section
+              aria-label={`Categoria em destaque: ${character.category}`}
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[300px] overflow-hidden sm:h-[360px] lg:relative lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[520px]"
+            >
+              <img
+                key={character.character}
+                src={character.image}
+                alt={`${character.character}, ilustração da categoria ${character.category}`}
+                className={`character-enter absolute inset-x-0 bottom-0 z-10 mx-auto h-[94%] max-h-full drop-shadow-[0_16px_38px_rgba(0,0,0,0.55)] ${character.imageClass}`}
+              />
+              <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#211d36]/95 via-[#211d36]/65 to-transparent px-5 pb-4 pt-12 sm:px-8 sm:pb-6 sm:pt-16">
+                <div>
+                  <p
+                    className={`text-xs font-bold uppercase tracking-[0.18em] ${character.accentClass}`}
+                  >
+                    Continue explorando
+                  </p>
+                  <h2 className="mt-1 text-xl font-black text-white sm:text-2xl">
+                    {character.category}
+                  </h2>
+                  <p className="mt-1 max-w-xs text-xs text-slate-300 sm:text-sm">
+                    {character.description}
+                  </p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section aria-labelledby="platforms-title" className="mt-8 sm:mt-10">
+          <header className="mb-5">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-200 sm:text-sm">
+              Uma experiência para cada tela
+            </p>
+            <h2
+              id="platforms-title"
+              className="mt-1.5 text-xl font-extrabold sm:text-2xl"
+            >
+              Aplicativos em desenvolvimento
+            </h2>
+          </header>
+          <div className="grid gap-4 sm:grid-cols-2 sm:gap-5">
+            <article className="rounded-2xl border border-white/[0.08] bg-[#202435]/90 p-5 sm:p-6">
+              <span className="inline-flex size-11 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
+                <Monitor aria-hidden="true" size={22} />
+              </span>
+              <h3 className="mt-4 text-lg font-bold">Desktop</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                Estamos preparando uma versão para computadores. O instalador
+                será publicado quando estiver pronto.
+              </p>
+              <p className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-violet-200">
+                <Sparkles aria-hidden="true" size={14} />
+                Download em breve
+              </p>
+            </article>
+            <article className="rounded-2xl border border-white/[0.08] bg-[#202435]/90 p-5 sm:p-6">
+              <span className="inline-flex size-11 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-200">
+                <Smartphone aria-hidden="true" size={22} />
+              </span>
+              <h3 className="mt-4 text-lg font-bold">Celular e tablet</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                A versão móvel também está em preparação. Por enquanto, acesse
+                sua biblioteca pelo navegador.
+              </p>
+              <p className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-emerald-200">
+                <Check aria-hidden="true" size={15} />
+                Obras sincronizadas pela nuvem na versão web
+              </p>
+            </article>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}

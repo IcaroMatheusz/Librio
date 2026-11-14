@@ -14,7 +14,7 @@ import Library from "./pages/library/LibraryPage";
 import Upload from "./pages/library/UploadPage";
 import Reader from "./pages/reader/ReaderPage";
 
-const Download = lazy(() => import("./pages/library/DownloadPage"));
+const Download = lazy(() => import("./pages/download/DownloadPage"));
 
 export default function App() {
   return (
