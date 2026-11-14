@@ -1,17 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff, BookOpen } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router-dom";
 
-type Credentials = {
-  username: string;
-  password: string;
-};
-
-type RegisterScreenProps = {
-  backgroundImage?: string;
-  mobileBackgroundImage?: string;
-  onSubmit?: (credentials: Credentials) => Promise<void> | void;
-};
+import { useAuth } from "../../contexts/useAuth";
 
 const PHRASES = [
   "Seus livros.",
@@ -20,18 +11,20 @@ const PHRASES = [
   "Suas histórias.",
 ];
 
-export default function RegisterScreen({
-  // Dica: baixe as imagens para public/images/ e use caminhos locais
-  backgroundImage = "https://images4.alphacoders.com/990/990502.jpg",
-  mobileBackgroundImage = "https://i.pinimg.com/736x/8a/4d/87/8a4d87e966c81336893c3acb825f2a11.jpg",
-  onSubmit,
-}: RegisterScreenProps) {
+export default function RegisterScreen() {
+  const { signUp, initializationError } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [phraseIndex, setPhraseIndex] = useState(0);
+  const backgroundImage = "https://images4.alphacoders.com/990/990502.jpg";
+  const mobileBackgroundImage =
+    "https://i.pinimg.com/736x/8a/4d/87/8a4d87e966c81336893c3acb825f2a11.jpg";
 
   // Troca a frase do painel desktop a cada 3s (parado se o usuário pediu menos movimento)
   useEffect(() => {
@@ -47,21 +40,45 @@ export default function RegisterScreen({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!username.trim() || !password) {
-      setError("Preencha seu email e sua senha para continuar.");
+    if (!username.trim() || !email.trim() || !password) {
+      setError("Preencha seu nome de usuário, e-mail e senha.");
+      return;
+    }
+
+    if (username.trim().length < 3) {
+      setError("Seu nome de usuário precisa ter pelo menos 3 caracteres.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("A senha precisa ter pelo menos 8 caracteres.");
       return;
     }
 
     setError(null);
+    setSuccess(null);
     setLoading(true);
 
     try {
-      await onSubmit?.({
-        username: username.trim(),
+      const result = await signUp(
+        username.trim(),
+        email.trim().toLowerCase(),
         password,
-      });
-    } catch {
-      setError("Email ou senha inválidos. Tente novamente.");
+      );
+
+      if (result.requiresEmailConfirmation) {
+        setSuccess(
+          "Sua conta foi criada. Confira sua caixa de entrada e confirme o e-mail para entrar.",
+        );
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível criar sua conta. Tente novamente.",
+      );
     } finally {
       setLoading(false);
     }
@@ -175,11 +192,10 @@ export default function RegisterScreen({
           {/* FORMULÁRIO */}
           <form
             onSubmit={handleSubmit}
-            noValidate
             className="flex flex-col gap-4 md:gap-5"
           >
 
-            {/* NOMEDE USUARIO */}
+            {/* NOME DE USUARIO */}
             <div className="flex flex-col gap-2">
               <label
                 htmlFor="username"
@@ -190,11 +206,17 @@ export default function RegisterScreen({
 
               <input
                 id="username"
-                type="email"
-                placeholder="seuemail@exemplo.com"
-                autoComplete="username"
+                type="text"
+                placeholder="Digite seu nome de usuário"
+                autoComplete="nickname"
+                minLength={3}
+                maxLength={40}
+                required
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  setSuccess(null);
+                }}
                 className={inputClass}
               />
             </div>
@@ -202,19 +224,23 @@ export default function RegisterScreen({
             {/* EMAIL */}
             <div className="flex flex-col gap-2">
               <label
-                htmlFor="username"
+                htmlFor="email"
                 className="text-sm font-bold text-[#292D3C]"
               >
                 Email
               </label>
 
               <input
-                id="username"
+                id="email"
                 type="email"
                 placeholder="seuemail@exemplo.com"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setSuccess(null);
+                }}
                 className={inputClass}
               />
             </div>
@@ -234,8 +260,13 @@ export default function RegisterScreen({
                   type={showPassword ? "text" : "password"}
                   placeholder="Digite sua senha"
                   autoComplete="current-password"
+                  minLength={8}
+                  required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setSuccess(null);
+                  }}
                   className={`${inputClass} pr-14`}
                 />
 
@@ -261,8 +292,17 @@ export default function RegisterScreen({
               </div>
             </div>
 
+            {success && (
+              <p
+                role="status"
+                className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"
+              >
+                {success}
+              </p>
+            )}
+
             {/* ERRO */}
-            {error && (
+            {(error || initializationError) && (
               <p
                 role="alert"
                 className="
@@ -271,14 +311,14 @@ export default function RegisterScreen({
                   text-sm font-medium text-red-700
                 "
               >
-                {error}
+                {error || initializationError}
               </p>
             )}
 
             {/* BOTÃO DE REGISTRO */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || Boolean(success)}
               className="
                 mt-1 flex w-full items-center md:mt-2
                 justify-center rounded-xl
@@ -293,7 +333,11 @@ export default function RegisterScreen({
                 disabled:opacity-60
               "
             >
-              {loading ? "Registrando..." : "Criar minha conta"}
+              {success
+                ? "Cadastro concluído"
+                : loading
+                  ? "Registrando..."
+                  : "Criar minha conta"}
             </button>
 
           </form>

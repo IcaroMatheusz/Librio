@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import { AuthProvider } from "./contexts/AuthContext";
-import { ProtectedRoute } from "./components/ProtectedRoute";
+import { ProtectedRoute, PublicOnlyRoute } from "./components/ProtectedRoute";
 
 import Login from "./pages/auth/LoginPage";
 import Register from "./pages/auth/RegisterPage";
@@ -16,8 +16,10 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             {/* Rotas públicas */}
-            <Route path="/" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route element={<PublicOnlyRoute />}>
+              <Route path="/" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+            </Route>
             {/* Rotas protegidas */}
             <Route element={<ProtectedRoute />}>
               <Route path="/dashboard" element={<Dashboard />} />

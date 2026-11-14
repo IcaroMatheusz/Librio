@@ -5,7 +5,8 @@ const BOOK_FIELDS =
   "id, user_id, title, author, cover_url, file_type, file_size, created_at";
 
 export async function getRecentBooks(): Promise<Book[]> {
-  const { data, error } = await getSupabaseClient()
+  const client = await getSupabaseClient();
+  const { data, error } = await client
     .from("books")
     .select(BOOK_FIELDS)
     .order("created_at", { ascending: false })
@@ -16,7 +17,8 @@ export async function getRecentBooks(): Promise<Book[]> {
 }
 
 export async function getBookCount(): Promise<number> {
-  const { count, error } = await getSupabaseClient()
+  const client = await getSupabaseClient();
+  const { count, error } = await client
     .from("books")
     .select("id", { count: "exact", head: true });
 

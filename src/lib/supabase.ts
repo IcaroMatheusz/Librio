@@ -1,10 +1,10 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "../types/database";
 
-let supabaseClient: SupabaseClient<Database> | null = null;
+let supabaseClient: Promise<SupabaseClient<Database>> | null = null;
 
-export function getSupabaseClient(): SupabaseClient<Database> {
+export function getSupabaseClient(): Promise<SupabaseClient<Database>> {
   if (supabaseClient) return supabaseClient;
 
   const url = import.meta.env.VITE_SUPABASE_URL?.trim();
@@ -16,14 +16,15 @@ export function getSupabaseClient(): SupabaseClient<Database> {
     );
   }
 
-  // TODO: integrar os formulários de login e registro ao Supabase Auth; as consultas usam a sessão e dependem do RLS.
-  supabaseClient = createClient<Database>(url, anonKey, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-    },
-  });
+  supabaseClient = import("@supabase/supabase-js").then(({ createClient }) =>
+    createClient<Database>(url, anonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    }),
+  );
 
   return supabaseClient;
 }

@@ -7,7 +7,7 @@ export interface ProgressCounts {
 }
 
 export async function getRecentReads(): Promise<RecentRead[]> {
-  const client = getSupabaseClient();
+  const client = await getSupabaseClient();
   const { data: progressRows, error: progressError } = await client
     .from("reading_progress")
     .select("book_id, progress, last_read_at")
@@ -40,7 +40,7 @@ export async function getRecentReads(): Promise<RecentRead[]> {
 }
 
 export async function getProgressCounts(): Promise<ProgressCounts> {
-  const client = getSupabaseClient();
+  const client = await getSupabaseClient();
   const [inProgressResult, completedResult] = await Promise.all([
     client
       .from("reading_progress")

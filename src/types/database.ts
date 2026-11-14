@@ -1,6 +1,22 @@
 export interface Database {
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          id: string;
+          username: string;
+          avatar_url: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          username: string;
+          avatar_url?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["profiles"]["Insert"]>;
+        Relationships: [];
+      };
       books: {
         Row: {
           id: string;
@@ -43,10 +59,12 @@ export interface Database {
       };
       user_storage: {
         Row: {
+          user_id: string;
           used_bytes: number;
           max_bytes: number;
         };
         Insert: {
+          user_id: string;
           used_bytes: number;
           max_bytes: number;
         };

@@ -2,9 +2,10 @@ import { getSupabaseClient } from "../lib/supabase";
 import type { UserStorage } from "../types/database";
 
 export async function getUserStorage(): Promise<UserStorage> {
-  const { data, error } = await getSupabaseClient()
+  const client = await getSupabaseClient();
+  const { data, error } = await client
     .from("user_storage")
-    .select("used_bytes, max_bytes")
+    .select("user_id, used_bytes, max_bytes")
     .maybeSingle();
 
   if (error) {

@@ -1,18 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff, BookOpen } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router-dom";
 
-
-type Credentials = {
-  username: string;
-  password: string;
-};
-
-type LoginScreenProps = {
-  backgroundImage?: string;
-  mobileBackgroundImage?: string;
-  onSubmit?: (credentials: Credentials) => Promise<void> | void;
-};
+import { useAuth } from "../../contexts/useAuth";
 
 const PHRASES = [
   "Seus livros.",
@@ -21,18 +11,19 @@ const PHRASES = [
   "Suas histórias.",
 ];
 
-export default function LoginScreen({
-  // Dica: baixe as imagens para public/images/ e use caminhos locais
-  backgroundImage = "https://wallpapers.com/images/featured/bakuman-b3xo0h0nws14tkcn.jpg",
-  mobileBackgroundImage = "https://i.pinimg.com/736x/06/d7/90/06d7904af054d44d74624cf2dcfd89cc.jpg",
-  onSubmit,
-}: LoginScreenProps) {
-  const [username, setUsername] = useState("");
+export default function LoginScreen() {
+  const { signIn, initializationError } = useAuth();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phraseIndex, setPhraseIndex] = useState(0);
+  const backgroundImage =
+    "https://wallpapers.com/images/featured/bakuman-b3xo0h0nws14tkcn.jpg";
+  const mobileBackgroundImage =
+    "https://i.pinimg.com/736x/06/d7/90/06d7904af054d44d74624cf2dcfd89cc.jpg";
 
   // Troca a frase do painel desktop a cada 3s (parado se o usuário pediu menos movimento)
   useEffect(() => {
@@ -48,7 +39,7 @@ export default function LoginScreen({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!username.trim() || !password) {
+    if (!email.trim() || !password) {
       setError("Preencha seu email e sua senha para continuar.");
       return;
     }
@@ -57,12 +48,14 @@ export default function LoginScreen({
     setLoading(true);
 
     try {
-      await onSubmit?.({
-        username: username.trim(),
-        password,
-      });
-    } catch {
-      setError("Email ou senha inválidos. Tente novamente.");
+      await signIn(email.trim().toLowerCase(), password);
+      navigate("/dashboard", { replace: true });
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível entrar. Tente novamente.",
+      );
     } finally {
       setLoading(false);
     }
@@ -79,19 +72,21 @@ export default function LoginScreen({
   `;
 
   return (
-    <main className="
+    <main
+      className="
       relative grid min-h-screen min-h-dvh
       overflow-hidden bg-[#2F3447]
       lg:grid-cols-[46%_54%]
-    ">
-
+    "
+    >
       {/* FORMULÁRIO */}
-      <section className="
+      <section
+        className="
         relative isolate flex min-h-screen min-h-dvh
         flex-col items-center justify-center
         overflow-hidden px-6 py-6 sm:px-8 sm:py-10 lg:px-8 xl:px-12
-      ">
-
+      "
+      >
         {/* BACKGROUND MOBILE */}
         <div
           className="
@@ -105,13 +100,15 @@ export default function LoginScreen({
         />
 
         {/* OVERLAY MOBILE */}
-        <div className="
+        <div
+          className="
           absolute inset-0 -z-10 lg:hidden
           bg-gradient-to-b
           from-[#171A27]/55
           via-[#2F3447]/75
           to-[#2F3447]/95
-        "/>
+        "
+        />
 
         {/* BRILHOS DESKTOP (luz de palco atrás do card) */}
         <div
@@ -133,16 +130,20 @@ export default function LoginScreen({
         />
 
         {/* LOGO MOBILE / TABLET */}
-        <div className="
+        <div
+          className="
           relative z-10 mb-5 flex items-center
           gap-3 text-white md:mb-8 lg:hidden
-        ">
-          <div className="
+        "
+        >
+          <div
+            className="
             flex h-10 w-10 items-center justify-center
             rounded-2xl border border-white/20
             bg-white/10 backdrop-blur-md
             md:h-14 md:w-14
-          ">
+          "
+          >
             <BookOpen className="h-5 w-5 md:h-7 md:w-7" />
           </div>
 
@@ -152,7 +153,8 @@ export default function LoginScreen({
         </div>
 
         {/* CARD DE LOGIN */}
-        <div className="
+        <div
+          className="
           anim-fade-up relative z-10 w-full
           max-w-sm sm:max-w-md md:max-w-lg lg:max-w-md
           rounded-3xl border border-white/60 md:rounded-[28px]
@@ -160,15 +162,17 @@ export default function LoginScreen({
           p-5 ring-1 ring-black/5
           shadow-[0_30px_70px_-15px_rgba(10,8,25,0.65)]
           sm:p-8 md:p-10 lg:p-9 xl:p-11
-        ">
-
+        "
+        >
           {/* CABEÇALHO */}
           <header className="mb-4 md:mb-5">
-            <h1 className="
+            <h1
+              className="
               text-3xl font-extrabold tracking-tight
               text-[#202330] sm:text-4xl md:text-5xl
               lg:text-4xl xl:text-5xl
-            ">
+            "
+            >
               Bem-vindo!
             </h1>
           </header>
@@ -176,26 +180,25 @@ export default function LoginScreen({
           {/* FORMULÁRIO */}
           <form
             onSubmit={handleSubmit}
-            noValidate
             className="flex flex-col gap-4 md:gap-5"
           >
-
             {/* EMAIL */}
             <div className="flex flex-col gap-2">
               <label
-                htmlFor="username"
+                htmlFor="email"
                 className="text-sm font-bold text-[#292D3C]"
               >
                 Email
               </label>
 
               <input
-                id="username"
+                id="email"
                 type="email"
                 placeholder="seuemail@exemplo.com"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className={inputClass}
               />
             </div>
@@ -215,6 +218,7 @@ export default function LoginScreen({
                   type={showPassword ? "text" : "password"}
                   placeholder="Digite sua senha"
                   autoComplete="current-password"
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className={`${inputClass} pr-14`}
@@ -222,9 +226,7 @@ export default function LoginScreen({
 
                 <button
                   type="button"
-                  aria-label={
-                    showPassword ? "Ocultar senha" : "Mostrar senha"
-                  }
+                  aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                   aria-pressed={showPassword}
                   onClick={() => setShowPassword((v) => !v)}
                   className="
@@ -234,10 +236,7 @@ export default function LoginScreen({
                     hover:text-[#2F3447]
                   "
                 >
-                  {showPassword
-                    ? <EyeOff size={20} />
-                    : <Eye size={20} />
-                  }
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
@@ -255,7 +254,7 @@ export default function LoginScreen({
             </div>
 
             {/* ERRO */}
-            {error && (
+            {(error || initializationError) && (
               <p
                 role="alert"
                 className="
@@ -264,7 +263,7 @@ export default function LoginScreen({
                   text-sm font-medium text-red-700
                 "
               >
-                {error}
+                {error || initializationError}
               </p>
             )}
 
@@ -288,17 +287,17 @@ export default function LoginScreen({
             >
               {loading ? "Entrando..." : "Entrar na minha conta"}
             </button>
-
           </form>
 
           {/* CADASTRO */}
-          <div className="
+          <div
+            className="
             mt-6 border-t border-[#2F3447]/10
             pt-5 text-center md:mt-8 md:pt-6
-          ">
+          "
+          >
             <p className="text-sm text-neutral-600">
               Ainda não tem uma conta?{" "}
-
               <Link
                 to="/register"
                 className="
@@ -311,22 +310,21 @@ export default function LoginScreen({
               </Link>
             </p>
           </div>
-
         </div>
 
         {/* RODAPÉ */}
-        <p className="
+        <p
+          className="
           relative z-10 mt-6 text-center text-xs
           tracking-wide text-white/70 md:mt-8 md:text-sm
-        ">
+        "
+        >
           Librio © 2026 — Sua próxima leitura começa aqui.
         </p>
-
       </section>
 
       {/* PAINEL DESKTOP */}
       <aside className="relative hidden overflow-hidden lg:flex">
-
         {/* IMAGEM COM ZOOM LENTO (div própria: só a imagem se move) */}
         <div
           className="absolute inset-0 bg-cover bg-center anim-kenburns"
@@ -336,21 +334,24 @@ export default function LoginScreen({
         />
 
         {/* OVERLAY DESKTOP */}
-        <div className="
+        <div
+          className="
           absolute inset-0
           bg-gradient-to-r
           from-[#171A27]/80
           via-[#171A27]/50
           to-[#171A27]/20
-        "/>
+        "
+        />
 
         {/* CONTEÚDO DESKTOP */}
-        <div className="
+        <div
+          className="
           relative z-10 flex w-full flex-col
           justify-end p-10 text-white
           xl:p-20
-        ">
-
+        "
+        >
           {/* ÍCONE FLUTUANTE */}
           <div className="anim-fade-up" style={{ animationDelay: "150ms" }}>
             <div className="relative mb-5 w-fit anim-float">
@@ -358,12 +359,14 @@ export default function LoginScreen({
                 aria-hidden
                 className="absolute -inset-5 rounded-full bg-indigo-400/40 blur-2xl anim-glow"
               />
-              <div className="
+              <div
+                className="
                 relative flex h-16 w-16 items-center
                 justify-center rounded-2xl
                 border border-white/20
                 bg-white/10 backdrop-blur-md
-              ">
+              "
+              >
                 <BookOpen size={34} />
               </div>
             </div>
@@ -389,7 +392,10 @@ export default function LoginScreen({
               Seus livros, seus quadrinhos, suas histórias. Tudo em um só lugar.
             </p>
 
-            <p aria-hidden className="text-3xl font-bold leading-snug xl:text-4xl">
+            <p
+              aria-hidden
+              className="text-3xl font-bold leading-snug xl:text-4xl"
+            >
               {/* key muda -> React recria o span -> animação reinicia */}
               <span
                 key={PHRASES[phraseIndex]}
@@ -408,10 +414,8 @@ export default function LoginScreen({
             className="anim-bar mt-10 h-1 w-20 rounded-full bg-indigo-300"
             style={{ animationDelay: "700ms" }}
           />
-
         </div>
       </aside>
-
     </main>
   );
 }
