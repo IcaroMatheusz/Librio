@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, BookOpen } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
 import { ComicReader } from "../../components/reader/ComicReader";
 import { PdfReader } from "../../components/reader/PdfReader";
@@ -21,6 +21,17 @@ interface ReaderDocument {
 
 export default function ReaderPage() {
   const { bookId } = useParams();
+  const location = useLocation();
+  const locationState: unknown = location.state;
+  const returnTo =
+    typeof locationState === "object" &&
+    locationState !== null &&
+    "returnTo" in locationState &&
+    (locationState.returnTo === "/dashboard" ||
+      locationState.returnTo === "/library")
+      ? locationState.returnTo
+      : "/library";
+  const returnLabel = returnTo === "/dashboard" ? "Painel" : "Biblioteca";
   const [document, setDocument] = useState<ReaderDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,11 +106,11 @@ export default function ReaderPage() {
       <header className="relative z-10 border-b border-white/[0.07] bg-[#171A27]/80 backdrop-blur">
         <nav className="mx-auto flex w-full max-w-7xl items-center gap-4 px-4 py-3 sm:px-8 lg:px-12">
           <Link
-            to="/library"
+            to={returnTo}
             className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg text-sm font-semibold text-slate-200 transition hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
           >
             <ArrowLeft aria-hidden="true" size={18} />
-            <span className="hidden sm:inline">Biblioteca</span>
+            <span className="hidden sm:inline">{returnLabel}</span>
           </Link>
           <span aria-hidden="true" className="h-6 w-px bg-white/10" />
           {document?.book.cover_url ? (
@@ -142,10 +153,10 @@ export default function ReaderPage() {
               {error}
             </p>
             <Link
-              to="/library"
+              to={returnTo}
               className="mt-5 inline-flex min-h-10 items-center justify-center rounded-xl bg-white/10 px-4 py-2 text-sm font-semibold transition hover:bg-white/15 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
             >
-              Voltar à biblioteca
+              Voltar para {returnLabel.toLowerCase()}
             </Link>
           </article>
         ) : document?.book.file_type.toUpperCase() === "PDF" ? (

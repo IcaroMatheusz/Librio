@@ -74,7 +74,13 @@ export function RecentBooksSection({ books }: { books: Book[] }) {
       {books.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
           {books.map((book) => (
-            <BookCard key={book.id} book={book} showFormat />
+            <BookCard
+              key={book.id}
+              book={book}
+              showFormat
+              to={`/reader/${book.id}`}
+              returnTo="/dashboard"
+            />
           ))}
         </div>
       ) : (
@@ -101,7 +107,13 @@ export function RecentReadsSection({ books }: { books: RecentRead[] }) {
       {books.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
           {books.map((book) => (
-            <BookCard key={book.id} book={book} progress={book.progress} />
+            <BookCard
+              key={book.id}
+              book={book}
+              progress={book.progress}
+              to={`/reader/${book.id}`}
+              returnTo="/dashboard"
+            />
           ))}
         </div>
       ) : (

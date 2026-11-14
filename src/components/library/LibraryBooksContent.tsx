@@ -107,6 +107,7 @@ export function LibraryBooksContent({
           book={book}
           showFormat
           to={`/reader/${book.id}`}
+          returnTo="/library"
           onRename={() => onRename(book)}
           onDelete={() => onDelete(book)}
           onCoverSelect={(file) => onCoverSelect(book, file)}

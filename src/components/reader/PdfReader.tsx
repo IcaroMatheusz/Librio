@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState } from "react";
 import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
+import {
+  BookOpen,
   ArrowLeft,
   ArrowRight,
+  CircleAlert,
+  CircleCheck,
+  LoaderCircle,
   Maximize,
   Minus,
   Plus,
@@ -28,6 +38,7 @@ export function PdfReader({
   const pageViewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const saveRequestRef = useRef(0);
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageInput, setPageInput] = useState("1");
@@ -36,6 +47,7 @@ export function PdfReader({
   const [error, setError] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
@@ -161,40 +173,60 @@ export function PdfReader({
   useEffect(() => {
     if (!pdfDocument) return;
     let active = true;
+    const requestId = ++saveRequestRef.current;
     const progress = Math.min(
       100,
       Math.max(1, Math.round((pageNumber / pdfDocument.numPages) * 100)),
     );
-
-    const timeoutId = window.setTimeout(() => {
-      setSaveStatus("saving");
-      saveQueueRef.current = saveQueueRef.current
-        .catch(() => {})
-        .then(() => onProgressChange(progress))
-        .then(() => {
-          if (active) setSaveStatus("saved");
-        })
-        .catch(() => {
-          if (active) setSaveStatus("error");
-        });
-    }, 500);
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => {})
+      .then(() => {
+        if (!active || requestId !== saveRequestRef.current) return;
+        setSaveStatus("saving");
+        setSaveError(null);
+        return onProgressChange(progress);
+      })
+      .then(() => {
+        if (active && requestId === saveRequestRef.current) {
+          setSaveStatus("saved");
+        }
+      })
+      .catch((caughtError: unknown) => {
+        if (active && requestId === saveRequestRef.current) {
+          setSaveError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Erro desconhecido ao salvar o progresso.",
+          );
+          setSaveStatus("error");
+        }
+      });
 
     return () => {
       active = false;
-      window.clearTimeout(timeoutId);
     };
   }, [onProgressChange, pageNumber, pdfDocument, saveAttempt]);
+
+  const changePage = useCallback(
+    (delta: number) => {
+      const nextPage = Math.min(
+        pdfDocument?.numPages ?? pageNumber,
+        Math.max(1, pageNumber + delta),
+      );
+      setPageNumber(nextPage);
+      setPageInput(String(nextPage));
+    },
+    [pageNumber, pdfDocument],
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target;
       if (target instanceof HTMLInputElement) return;
       if (event.key === "ArrowLeft") {
-        setPageNumber((current) => Math.max(1, current - 1));
+        changePage(-1);
       } else if (event.key === "ArrowRight") {
-        setPageNumber((current) =>
-          Math.min(pdfDocument?.numPages ?? current, current + 1),
-        );
+        changePage(1);
       } else if (event.key === "+" || event.key === "=") {
         setZoom((current) => Math.min(2, current + 0.1));
       } else if (event.key === "-") {
@@ -204,7 +236,7 @@ export function PdfReader({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pdfDocument]);
+  }, [changePage, pdfDocument]);
 
   useEffect(() => {
     const reader = pageViewportRef.current;
@@ -232,6 +264,16 @@ export function PdfReader({
     setPageInput(String(nextPage));
   }
 
+  function navigateFromPageClick(event: MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0 || !(event.target instanceof HTMLCanvasElement)) {
+      return;
+    }
+
+    const bounds = event.target.getBoundingClientRect();
+    const clickedRightSide = event.clientX >= bounds.left + bounds.width / 2;
+    changePage(clickedRightSide ? 1 : -1);
+  }
+
   if (loading) {
     return (
       <ReaderLoading
@@ -251,6 +293,10 @@ export function PdfReader({
     );
   }
 
+  const readingProgress = Math.round(
+    (pageNumber / pdfDocument.numPages) * 100,
+  );
+
   return (
     <section
       ref={readerRef}
@@ -261,7 +307,7 @@ export function PdfReader({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setPageNumber((page) => Math.max(1, page - 1))}
+            onClick={() => changePage(-1)}
             disabled={pageNumber <= 1}
             aria-label="Página anterior"
             className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
@@ -288,11 +334,7 @@ export function PdfReader({
           </label>
           <button
             type="button"
-            onClick={() =>
-              setPageNumber((page) =>
-                Math.min(pdfDocument.numPages, page + 1),
-              )
-            }
+            onClick={() => changePage(1)}
             disabled={pageNumber >= pdfDocument.numPages}
             aria-label="Próxima página"
             className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
@@ -341,32 +383,83 @@ export function PdfReader({
       </div>
 
       <div
-        ref={pageViewportRef}
-        className="flex flex-1 items-center justify-center overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-4"
+        className="grid flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4"
       >
+        <button
+          type="button"
+          onClick={() => changePage(-1)}
+          disabled={pageNumber <= 1}
+          aria-label="Página anterior"
+          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+        >
+          <ArrowLeft aria-hidden="true" size={18} />
+        </button>
         {renderError ? (
           <p role="alert" className="text-center text-sm text-rose-200">
             {renderError}
           </p>
         ) : (
-          <canvas
-            ref={canvasRef}
-            aria-label={`Página ${pageNumber} de ${pdfDocument.numPages}`}
-            className="max-w-full object-contain shadow-2xl shadow-black/30"
-          />
+          <div
+            ref={pageViewportRef}
+            onClick={navigateFromPageClick}
+            className="flex min-w-0 items-center justify-center"
+          >
+            <canvas
+              ref={canvasRef}
+              aria-label={`Página ${pageNumber} de ${pdfDocument.numPages}`}
+              className="max-w-full cursor-pointer object-contain shadow-2xl shadow-black/30"
+            />
+          </div>
         )}
+        <button
+          type="button"
+          onClick={() => changePage(1)}
+          disabled={pageNumber >= pdfDocument.numPages}
+          aria-label="Próxima página"
+          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+        >
+          <ArrowRight aria-hidden="true" size={18} />
+        </button>
       </div>
 
-      <footer className="flex min-h-9 items-center justify-end border-t border-white/[0.08] bg-[#202435]/70 px-4 text-xs text-slate-400">
-        {saveStatus === "saving" && <span role="status">Salvando progresso…</span>}
-        {saveStatus === "saved" && <span role="status">Progresso salvo</span>}
+      <footer className="flex min-h-11 items-center justify-between gap-3 border-t border-white/[0.08] bg-[#202435]/70 px-3 text-xs text-slate-400 sm:px-4">
+        <span
+          className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-violet-100"
+          aria-label={`${readingProgress}% do PDF lido`}
+        >
+          <BookOpen aria-hidden="true" size={15} className="text-violet-200" />
+          {readingProgress}% <span className="hidden sm:inline">lido</span>
+        </span>
+        {saveStatus === "saving" && (
+          <span role="status" className="inline-flex min-w-0 items-center gap-1.5">
+            <LoaderCircle
+              aria-hidden="true"
+              size={14}
+              className="shrink-0 animate-spin text-violet-200"
+            />
+            <span className="truncate">Salvando progresso…</span>
+          </span>
+        )}
+        {saveStatus === "saved" && (
+          <span role="status" className="inline-flex items-center gap-1.5">
+            <CircleCheck
+              aria-hidden="true"
+              size={14}
+              className="text-emerald-300"
+            />
+            Progresso salvo
+          </span>
+        )}
         {saveStatus === "error" && (
-          <span className="flex items-center gap-2 text-rose-200">
-            Não foi possível salvar o progresso.
+          <span className="flex min-w-0 items-center gap-1.5 text-rose-200">
+            <CircleAlert aria-hidden="true" size={14} className="shrink-0" />
+            <span className="truncate" title={saveError ?? undefined}>
+              {saveError ?? "Não foi possível salvar o progresso."}
+            </span>
             <button
               type="button"
               onClick={() => setSaveAttempt((attempt) => attempt + 1)}
-              className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-violet-200"
+              className="shrink-0 underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-violet-200"
             >
               Tentar novamente
             </button>

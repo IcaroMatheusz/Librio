@@ -79,6 +79,7 @@ export function ContinueReading({
 
             <Link
               to={`/reader/${book.id}`}
+              state={{ returnTo: "/dashboard" }}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-violet-400 px-5 py-3 font-bold text-[#1d1930] shadow-lg shadow-black/15 transition hover:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white lg:shrink-0"
             >
               Continuar leitura

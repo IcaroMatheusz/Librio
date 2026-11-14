@@ -29,9 +29,20 @@ export async function saveBookProgress(
   progress: number,
 ): Promise<void> {
   const client = await getSupabaseClient();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) {
+    throw new Error(
+      `Não foi possível identificar sua sessão para salvar o progresso: ${userError.message}`,
+    );
+  }
+  if (!userData.user) {
+    throw new Error("Sua sessão expirou. Entre novamente para salvar o progresso.");
+  }
+
   const { error } = await client.from("reading_progress").upsert(
     {
       book_id: bookId,
+      user_id: userData.user.id,
       progress: Math.max(0, Math.min(100, Math.round(progress))),
       last_read_at: new Date().toISOString(),
     },
@@ -39,6 +50,15 @@ export async function saveBookProgress(
   );
 
   if (error) {
+    if (
+      error.message.includes(
+        "there is no unique or exclusion constraint matching the ON CONFLICT specification",
+      )
+    ) {
+      throw new Error(
+        "A tabela reading_progress precisa de uma restrição UNIQUE em book_id para sincronizar o progresso. Crie uma chave única nessa coluna no Supabase e tente novamente.",
+      );
+    }
     throw new Error(`Não foi possível salvar o progresso da leitura: ${error.message}`);
   }
 }

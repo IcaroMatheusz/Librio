@@ -9,6 +9,7 @@ interface BookCardProps {
   progress?: number;
   showFormat?: boolean;
   to?: string;
+  returnTo?: "/dashboard" | "/library";
   onRename?: () => void;
   onDelete?: () => void;
   onCoverSelect?: (file: File) => void;
@@ -21,6 +22,7 @@ export function BookCard({
   progress,
   showFormat = false,
   to,
+  returnTo,
   onRename,
   onDelete,
   onCoverSelect,
@@ -115,6 +117,7 @@ export function BookCard({
       {to ? (
         <Link
           to={to}
+          state={returnTo ? { returnTo } : undefined}
           aria-label={`Abrir ${book.title}`}
           className="block rounded-t-2xl focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-violet-200"
         >

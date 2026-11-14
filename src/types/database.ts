@@ -58,11 +58,13 @@ export interface Database {
       reading_progress: {
         Row: {
           book_id: string;
+          user_id: string;
           progress: number;
           last_read_at: string | null;
         };
         Insert: {
           book_id: string;
+          user_id: string;
           progress: number;
           last_read_at?: string | null;
         };

@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -34,6 +40,7 @@ export function ComicReader({
 }: ComicReaderProps) {
   const readerRef = useRef<HTMLElement>(null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const saveRequestRef = useRef(0);
   const [pages, setPages] = useState<DisplayPage[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -42,7 +49,19 @@ export function ComicReader({
   const [loadDetail, setLoadDetail] = useState("Lendo o índice do arquivo…");
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
+
+  const changePage = useCallback(
+    (delta: number) => {
+      const nextIndex = Math.min(
+        pages.length - 1,
+        Math.max(0, pageIndex + delta),
+      );
+      setPageIndex(nextIndex);
+    },
+    [pageIndex, pages.length],
+  );
 
   useEffect(() => {
     let active = true;
@@ -109,26 +128,37 @@ export function ComicReader({
   useEffect(() => {
     if (loading || !pages.length) return;
     let active = true;
+    const requestId = ++saveRequestRef.current;
     const progress = Math.min(
       100,
       Math.max(1, Math.round(((pageIndex + 1) / pages.length) * 100)),
     );
-    const timeoutId = window.setTimeout(() => {
-      setSaveStatus("saving");
-      saveQueueRef.current = saveQueueRef.current
-        .catch(() => {})
-        .then(() => onProgressChange(progress))
-        .then(() => {
-          if (active) setSaveStatus("saved");
-        })
-        .catch(() => {
-          if (active) setSaveStatus("error");
-        });
-    }, 500);
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => {})
+      .then(() => {
+        if (!active || requestId !== saveRequestRef.current) return;
+        setSaveStatus("saving");
+        setSaveError(null);
+        return onProgressChange(progress);
+      })
+      .then(() => {
+        if (active && requestId === saveRequestRef.current) {
+          setSaveStatus("saved");
+        }
+      })
+      .catch((caughtError: unknown) => {
+        if (active && requestId === saveRequestRef.current) {
+          setSaveError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Erro desconhecido ao sincronizar o progresso.",
+          );
+          setSaveStatus("error");
+        }
+      });
 
     return () => {
       active = false;
-      window.clearTimeout(timeoutId);
     };
   }, [loading, onProgressChange, pageIndex, pages.length, saveAttempt]);
 
@@ -136,9 +166,9 @@ export function ComicReader({
     function handleKeyDown(event: KeyboardEvent) {
       if (event.target instanceof HTMLInputElement) return;
       if (event.key === "ArrowLeft") {
-        setPageIndex((index) => Math.max(0, index - 1));
+        changePage(-1);
       } else if (event.key === "ArrowRight") {
-        setPageIndex((index) => Math.min(pages.length - 1, index + 1));
+        changePage(1);
       } else if (event.key === "+" || event.key === "=") {
         setZoom((current) => Math.min(2, current + 0.1));
       } else if (event.key === "-") {
@@ -148,7 +178,17 @@ export function ComicReader({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [pages.length]);
+  }, [changePage]);
+
+  function navigateFromPageClick(event: MouseEvent<HTMLElement>) {
+    if (event.button !== 0 || !(event.target instanceof HTMLImageElement)) {
+      return;
+    }
+
+    const bounds = event.target.getBoundingClientRect();
+    const clickedRightSide = event.clientX >= bounds.left + bounds.width / 2;
+    changePage(clickedRightSide ? 1 : -1);
+  }
 
   if (loading) {
     return (
@@ -180,7 +220,7 @@ export function ComicReader({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => setPageIndex((index) => Math.max(0, index - 1))}
+            onClick={() => changePage(-1)}
             disabled={pageIndex === 0}
             aria-label="Página anterior"
             className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
@@ -196,9 +236,7 @@ export function ComicReader({
           </span>
           <button
             type="button"
-            onClick={() =>
-              setPageIndex((index) => Math.min(pages.length - 1, index + 1))
-            }
+            onClick={() => changePage(1)}
             disabled={pageIndex === pages.length - 1}
             aria-label="Próxima página"
             className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
@@ -246,25 +284,50 @@ export function ComicReader({
         </div>
       </div>
 
-      <figure className="flex flex-1 items-center justify-center overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-3 sm:p-6">
-        <img
-          src={currentPage.url}
-          alt={`Página ${pageIndex + 1} de ${pages.length}`}
-          className="max-h-[calc(100dvh-180px)] max-w-full object-contain shadow-2xl shadow-black/40 transition-transform duration-200"
-          style={{ transform: `scale(${zoom})` }}
-        />
+      <figure className="grid flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4">
+        <button
+          type="button"
+          onClick={() => changePage(-1)}
+          disabled={pageIndex === 0}
+          aria-label="Página anterior"
+          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+        >
+          <ArrowLeft aria-hidden="true" size={18} />
+        </button>
+        <div
+          onClick={navigateFromPageClick}
+          className="flex min-w-0 items-center justify-center"
+        >
+          <img
+            src={currentPage.url}
+            alt={`Página ${pageIndex + 1} de ${pages.length}`}
+            className="max-h-[calc(100dvh-180px)] max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40 transition-transform duration-200"
+            style={{ transform: `scale(${zoom})` }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => changePage(1)}
+          disabled={pageIndex === pages.length - 1}
+          aria-label="Próxima página"
+          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+        >
+          <ArrowRight aria-hidden="true" size={18} />
+        </button>
       </figure>
 
       <footer className="flex min-h-9 items-center justify-end border-t border-white/[0.08] bg-[#202435]/70 px-4 text-xs text-slate-400">
         {saveStatus === "saving" && <span role="status">Sincronizando progresso…</span>}
         {saveStatus === "saved" && <span role="status">Progresso sincronizado</span>}
         {saveStatus === "error" && (
-          <span className="flex items-center gap-2 text-rose-200">
-            Não foi possível sincronizar o progresso.
+          <span className="flex min-w-0 items-center gap-2 text-rose-200">
+            <span className="truncate" title={saveError ?? undefined}>
+              {saveError ?? "Não foi possível sincronizar o progresso."}
+            </span>
             <button
               type="button"
               onClick={() => setSaveAttempt((attempt) => attempt + 1)}
-              className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-violet-200"
+              className="shrink-0 underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-violet-200"
             >
               Tentar novamente
             </button>
