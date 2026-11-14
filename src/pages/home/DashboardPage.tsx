@@ -5,6 +5,7 @@ import {
 } from "../../components/dashboard/DashboardBookSections";
 import { ContinueReading } from "../../components/dashboard/ContinueReading";
 import { DashboardError } from "../../components/dashboard/DashboardError";
+import { DashboardBanner } from "../../components/dashboard/DashboardBanner";
 import { DashboardHeader } from "../../components/dashboard/DashboardHeader";
 import { DashboardSummary } from "../../components/dashboard/DashboardSummary";
 import { StorageIndicator } from "../../components/StorageIndicator";
@@ -28,6 +29,8 @@ export default function DashboardPage() {
       <DashboardHeader />
 
       <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-8 sm:py-10 lg:px-12">
+        <DashboardBanner />
+
         <section aria-labelledby="welcome-title">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-200">
             Seu espaço de leitura
@@ -48,6 +51,8 @@ export default function DashboardPage() {
           isLibraryEmpty={data.totalBooks === 0}
         />
 
+        <StorageIndicator storage={data.storage} />
+
         <DashboardSummary
           totalBooks={data.totalBooks}
           inProgress={data.inProgressCount}
@@ -61,8 +66,6 @@ export default function DashboardPage() {
           <RecentBooksSection books={data.books} />
           <RecentReadsSection books={data.recentReads} />
         </section>
-
-        <StorageIndicator storage={data.storage} />
 
         <footer className="border-t border-white/10 pt-5 text-center text-xs text-slate-500">
           Librio — sua próxima leitura começa aqui.

@@ -24,7 +24,7 @@ export async function getRecentReads(): Promise<RecentRead[]> {
   const bookIds = progressRows.map(({ book_id }) => book_id);
   const { data: books, error: booksError } = await client
     .from("books")
-    .select("id, user_id, title, author, cover_url, file_type, file_size, created_at")
+    .select("id, user_id, title, author, description, cover_url, file_path, file_type, file_size, created_at, updated_at")
     .in("id", bookIds);
 
   if (booksError) {

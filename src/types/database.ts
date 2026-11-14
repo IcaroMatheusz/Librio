@@ -23,20 +23,26 @@ export interface Database {
           user_id: string;
           title: string;
           author: string;
+          description: string | null;
           cover_url: string | null;
-          file_type: "PDF" | "EPUB" | string;
+          file_path: string;
+          file_type: "PDF" | "EPUB" | "CBR" | "CBZ" | string;
           file_size: number;
           created_at: string;
+          updated_at: string;
         };
         Insert: {
           id?: string;
           user_id: string;
           title: string;
           author: string;
+          description?: string | null;
           cover_url?: string | null;
-          file_type: "PDF" | "EPUB" | string;
+          file_path: string;
+          file_type: "PDF" | "EPUB" | "CBR" | "CBZ" | string;
           file_size: number;
           created_at?: string;
+          updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["books"]["Insert"]>;
         Relationships: [];
@@ -80,6 +86,7 @@ export interface Database {
 }
 
 export type Book = Database["public"]["Tables"]["books"]["Row"];
+export type BookFileType = "PDF" | "CBR" | "CBZ";
 export type ReadingProgress =
   Database["public"]["Tables"]["reading_progress"]["Row"];
 export type UserStorage = Database["public"]["Tables"]["user_storage"]["Row"];

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BookOpen,
   ChevronDown,
@@ -9,6 +9,11 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../contexts/useAuth";
+import {
+  getProfile,
+  getProfilePhotoUrl,
+  type Profile,
+} from "../../services/profileService";
 
 export function DashboardHeader() {
   const { user, signOut } = useAuth();
@@ -16,8 +21,45 @@ export function DashboardHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const accountLabel =
+    profile?.username ||
+    (typeof user?.user_metadata.username === "string"
+      ? user.user_metadata.username
+      : "Minha conta");
 
-  const accountLabel = user?.email ?? "Minha conta";
+  useEffect(() => {
+    let active = true;
+
+    async function loadProfile() {
+      if (!user) return;
+      try {
+        const currentProfile = await getProfile(user.id);
+        const photoUrl = await getProfilePhotoUrl(currentProfile.avatar_url);
+        if (active) {
+          setProfile(currentProfile);
+          setAvatarUrl(photoUrl);
+          setProfileError(null);
+        }
+      } catch (caughtError) {
+        if (!active) return;
+        setProfile(null);
+        setAvatarUrl(null);
+        setProfileError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Não foi possível carregar os dados do perfil.",
+        );
+      }
+    }
+
+    void loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [user]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -56,36 +98,41 @@ export function DashboardHeader() {
         </Link>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* TODO: Conectar este atalho à rota da biblioteca quando ela for criada. */}
           <Link
             to="/library"
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-violet-300/40 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:px-4"
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-slate-100 transition hover:border-violet-300/40 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:h-14 sm:px-4"
           >
             <Library aria-hidden="true" size={17} />
             <span className="hidden sm:inline">Biblioteca</span>
           </Link>
 
-          <div className="relative">
+          <div className="relative flex items-center gap-3">
+            <span className="max-w-28 truncate text-right text-sm font-semibold text-slate-100 sm:max-w-40 sm:text-base">
+              {accountLabel}
+            </span>
             <button
               type="button"
               aria-expanded={menuOpen}
               aria-haspopup="true"
-              aria-label="Abrir menu da conta"
+              aria-label={`Abrir menu da conta de ${accountLabel}`}
               onClick={() => setMenuOpen((open) => !open)}
-              className="inline-flex min-h-10 max-w-48 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-violet-300/40 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:max-w-60 sm:px-4"
+              className="group relative flex size-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-300 via-violet-400 to-indigo-500 p-[2px] shadow-[0_0_22px_rgba(167,139,250,0.3)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_0_30px_rgba(196,181,253,0.55)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:size-14"
             >
-              <UserRound
-                aria-hidden="true"
-                size={17}
-                className="shrink-0 text-violet-200"
-              />
-              <span className="hidden truncate sm:inline">
-                {accountLabel}
+              <span className="flex size-full items-center justify-center overflow-hidden rounded-full border-2 border-[#171A27] bg-[#211d32] text-violet-100">
+                {avatarUrl ? (
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <UserRound aria-hidden="true" size={25} />
+                )}
               </span>
               <ChevronDown
                 aria-hidden="true"
                 size={15}
-                className={`hidden shrink-0 transition-transform sm:block ${menuOpen ? "rotate-180" : ""}`}
+                className={`absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-[#171A27] bg-[#31264a] text-violet-100 transition-transform ${menuOpen ? "rotate-180" : ""}`}
               />
             </button>
 
@@ -106,6 +153,14 @@ export function DashboardHeader() {
                   />
                   Editar perfil
                 </Link>
+                {profileError && (
+                  <p
+                    role="alert"
+                    className="border-t border-white/10 px-3 py-2 text-xs leading-5 text-amber-200"
+                  >
+                    {profileError}
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => void handleSignOut()}

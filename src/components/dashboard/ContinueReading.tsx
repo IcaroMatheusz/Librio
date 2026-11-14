@@ -77,7 +77,6 @@ export function ContinueReading({
               </div>
             </article>
 
-            {/* TODO: Ligar ao leitor quando a rota /reader/:bookId estiver disponível. */}
             <Link
               to={`/reader/${book.id}`}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-violet-400 px-5 py-3 font-bold text-[#1d1930] shadow-lg shadow-black/15 transition hover:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white lg:shrink-0"
@@ -110,7 +109,6 @@ export function ContinueReading({
                 ? "Adicione sua primeira obra e tenha sua biblioteca sempre por perto."
                 : "Abra uma obra da sua biblioteca. Nós guardamos seu progresso para você continuar depois."}
             </p>
-            {/* TODO: Ligar ao fluxo de adicionar obras quando ele existir. */}
             <Link
               to="/library"
               className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-violet-400 px-5 py-3 font-bold text-[#1d1930] transition hover:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
