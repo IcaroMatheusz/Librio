@@ -45,6 +45,8 @@ export function ComicReader({
 }: ComicReaderProps) {
   const readerRef = useRef<HTMLElement>(null);
   const verticalViewportRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const previousReadingModeRef = useRef<ReadingMode>("page");
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRequestRef = useRef(0);
@@ -60,6 +62,49 @@ export function ComicReader({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
   const pinchZoom = usePinchZoom(zoom, setZoom);
+
+  useEffect(() => {
+    function syncFullscreen() {
+      setIsFullscreen(document.fullscreenElement === readerRef.current);
+    }
+
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  useEffect(() => {
+    const viewport = verticalViewportRef.current;
+    if (!viewport) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      setViewportSize({
+        width: entry.contentRect.width,
+        height: entry.contentRect.height,
+      });
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [loading, readingMode]);
+
+  useEffect(() => {
+    if (!pages.length) return;
+    for (const index of [pageIndex - 1, pageIndex + 1, pageIndex + 2]) {
+      const page = pages[index];
+      if (page) {
+        const preloadedImage = new Image();
+        preloadedImage.src = page.url;
+      }
+    }
+  }, [pageIndex, pages]);
+
+  useEffect(() => {
+    if (!isFullscreen || document.fullscreenElement) return;
+    function exitImmersiveMode(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsFullscreen(false);
+    }
+    window.addEventListener("keydown", exitImmersiveMode);
+    return () => window.removeEventListener("keydown", exitImmersiveMode);
+  }, [isFullscreen]);
 
   const changePage = useCallback(
     (delta: number) => {
@@ -264,7 +309,11 @@ export function ComicReader({
     <section
       ref={readerRef}
       aria-label="Leitor de quadrinhos"
-      className="flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25"
+      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25 ${
+        isFullscreen
+          ? "fixed inset-0 z-50 h-[100dvh] min-h-0 w-screen rounded-none border-0"
+          : ""
+      }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-2 py-2 backdrop-blur sm:px-4">
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -324,11 +373,20 @@ export function ComicReader({
             onClick={() => {
               if (document.fullscreenElement) {
                 void document.exitFullscreen();
+              } else if (isFullscreen) {
+                setIsFullscreen(false);
               } else {
-                void readerRef.current?.requestFullscreen();
+                const reader = readerRef.current;
+                if (!reader?.requestFullscreen) {
+                  setIsFullscreen(true);
+                } else {
+                  void reader.requestFullscreen().catch(() => {
+                    setIsFullscreen(true);
+                  });
+                }
               }
             }}
-            aria-label="Alternar tela cheia"
+            aria-label={isFullscreen ? "Sair da tela cheia" : "Alternar tela cheia"}
             className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200"
           >
             <Maximize aria-hidden="true" size={17} />
@@ -337,7 +395,7 @@ export function ComicReader({
         </div>
       </div>
 
-      <figure className="grid flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4">
+      <figure className="grid min-h-0 flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-2 sm:gap-3 sm:p-4">
         {readingMode === "page" && (
         <button
           type="button"
@@ -350,7 +408,7 @@ export function ComicReader({
         </button>
         )}
         <div
-          ref={readingMode === "vertical" ? verticalViewportRef : undefined}
+          ref={verticalViewportRef}
           onClick={navigateFromPageClick}
           onPointerDown={pinchZoom.handlePointerDown}
           onPointerMove={pinchZoom.handlePointerMove}
@@ -358,7 +416,9 @@ export function ComicReader({
           onPointerCancel={pinchZoom.handlePointerCancel}
           className={`min-h-0 min-w-0 overflow-auto ${
             readingMode === "vertical"
-              ? "col-span-3 h-full space-y-0"
+              ? `col-span-3 h-full space-y-0 overflow-y-auto ${
+                  isFullscreen ? "overscroll-contain" : ""
+                }`
               : `flex h-full ${zoom > 1 ? "items-start justify-start" : "items-center justify-center"}`
           }`}
           style={{ touchAction: "pan-x pan-y pinch-zoom" }}
@@ -373,7 +433,7 @@ export function ComicReader({
                 <img
                   src={page.url}
                   alt={`Página ${index + 1} de ${pages.length}`}
-                  loading="lazy"
+                  loading={Math.abs(index - pageIndex) <= 2 ? "eager" : "lazy"}
                   decoding="async"
                   className="block h-auto max-w-full object-contain"
                   style={{
@@ -388,10 +448,22 @@ export function ComicReader({
               src={currentPage.url}
               alt={`Página ${pageIndex + 1} de ${pages.length}`}
               decoding="async"
-              className="max-h-[calc(100dvh-180px)] max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40"
+              className={`max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40 ${
+                isFullscreen
+                  ? "max-h-[calc(100dvh-100px)]"
+                  : "max-h-[calc(100dvh-180px)]"
+              }`}
               style={{
                 zoom,
                 transform: `scale(${pinchZoom.previewScale})`,
+                maxHeight:
+                  viewportSize.height > 0
+                    ? `${viewportSize.height}px`
+                    : undefined,
+                maxWidth:
+                  viewportSize.width > 0
+                    ? `${viewportSize.width}px`
+                    : undefined,
               }}
             />
           )}

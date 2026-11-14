@@ -29,13 +29,14 @@ export function PdfContinuousPage({
     const element = pageRef.current;
     if (!element) return;
 
+    const root = element.closest("[data-pdf-scroll-viewport]");
     const renderObserver = new IntersectionObserver(
       ([entry]) => {
         const isIntersecting = entry?.isIntersecting ?? false;
         if (isIntersecting) setRenderError(null);
         setIsNearViewport(isIntersecting);
       },
-      { rootMargin: "100% 0px" },
+      { root: root instanceof HTMLElement ? root : null, rootMargin: "300% 0px" },
     );
     const visibleObserver = new IntersectionObserver(
       ([entry]) => {
@@ -43,7 +44,7 @@ export function PdfContinuousPage({
           onVisible(pageNumber);
         }
       },
-      { threshold: 0.1 },
+      { root: root instanceof HTMLElement ? root : null, threshold: 0.1 },
     );
     renderObserver.observe(element);
     visibleObserver.observe(element);

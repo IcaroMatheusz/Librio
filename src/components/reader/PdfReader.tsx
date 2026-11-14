@@ -62,6 +62,8 @@ export function PdfReader({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDocumentVisible, setIsDocumentVisible] = useState(
     () => document.visibilityState === "visible",
   );
@@ -155,7 +157,12 @@ export function PdfReader({
           240,
           (containerWidth || window.innerWidth) - 32,
         );
-        const fitScale = availableWidth / baseViewport.width;
+        const fitWidthScale = availableWidth / baseViewport.width;
+        const fitHeightScale =
+          isFullscreen && containerHeight > 0
+            ? Math.max(120, containerHeight - 16) / baseViewport.height
+            : fitWidthScale;
+        const fitScale = Math.min(fitWidthScale, fitHeightScale);
         const viewport = page.getViewport({ scale: fitScale * zoom });
         const pixelRatio = Math.min(
           window.devicePixelRatio || 1,
@@ -213,6 +220,8 @@ export function PdfReader({
     };
   }, [
     containerWidth,
+    containerHeight,
+    isFullscreen,
     isDocumentVisible,
     pageNumber,
     pdfDocument,
@@ -289,6 +298,24 @@ export function PdfReader({
   }, []);
 
   useEffect(() => {
+    function syncFullscreen() {
+      setIsFullscreen(document.fullscreenElement === readerRef.current);
+    }
+
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen || document.fullscreenElement) return;
+    function exitImmersiveMode(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsFullscreen(false);
+    }
+    window.addEventListener("keydown", exitImmersiveMode);
+    return () => window.removeEventListener("keydown", exitImmersiveMode);
+  }, [isFullscreen]);
+
+  useEffect(() => {
     const modeChanged = previousReadingModeRef.current !== readingMode;
     previousReadingModeRef.current = readingMode;
     if (readingMode !== "vertical" || !modeChanged) return;
@@ -328,6 +355,7 @@ export function PdfReader({
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
       setContainerWidth(entry.contentRect.width);
+      setContainerHeight(entry.contentRect.height);
     });
     observer.observe(reader);
     return () => observer.disconnect();
@@ -381,7 +409,11 @@ export function PdfReader({
     <section
       ref={readerRef}
       aria-label="Leitor de PDF"
-      className="flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25"
+      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25 ${
+        isFullscreen
+          ? "fixed inset-0 z-50 h-[100dvh] min-h-0 w-screen rounded-none border-0"
+          : ""
+      }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-2 py-2 backdrop-blur sm:px-4">
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -452,11 +484,20 @@ export function PdfReader({
             onClick={() => {
               if (document.fullscreenElement) {
                 void document.exitFullscreen();
+              } else if (isFullscreen) {
+                setIsFullscreen(false);
               } else {
-                void readerRef.current?.requestFullscreen();
+                const reader = readerRef.current;
+                if (!reader?.requestFullscreen) {
+                  setIsFullscreen(true);
+                } else {
+                  void reader.requestFullscreen().catch(() => {
+                    setIsFullscreen(true);
+                  });
+                }
               }
             }}
-            aria-label="Alternar tela cheia"
+            aria-label={isFullscreen ? "Sair da tela cheia" : "Alternar tela cheia"}
             className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200"
           >
             <Maximize aria-hidden="true" size={17} />
@@ -490,10 +531,17 @@ export function PdfReader({
             onPointerMove={pinchZoom.handlePointerMove}
             onPointerUp={pinchZoom.handlePointerUp}
             onPointerCancel={pinchZoom.handlePointerCancel}
-            className="h-full min-h-0 overflow-y-auto"
+            className={`h-full min-h-0 overflow-y-auto ${
+              isFullscreen ? "overscroll-contain" : ""
+            }`}
+            data-pdf-scroll-viewport
             style={{ touchAction: "pan-x pan-y pinch-zoom" }}
           >
-            <div className="mx-auto flex w-full max-w-4xl flex-col items-center gap-0">
+            <div
+              className={`mx-auto flex w-full flex-col items-center gap-0 ${
+                isFullscreen ? "max-w-none" : "max-w-4xl"
+              }`}
+            >
               {Array.from({ length: pdfDocument.numPages }, (_, index) => (
                 <PdfContinuousPage
                   key={index + 1}

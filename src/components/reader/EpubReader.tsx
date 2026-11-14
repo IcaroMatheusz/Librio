@@ -55,7 +55,7 @@ const CONTENT_CLASSES: Partial<Record<EpubContentNode["type"], string>> = {
   h5: "mb-3 mt-5 font-bold text-white",
   h6: "mb-2 mt-4 font-bold text-slate-200",
   i: "italic",
-  img: "block h-auto max-h-[calc(100dvh-240px)] max-w-full break-inside-avoid-column rounded-lg object-contain",
+  img: "mx-auto block h-auto max-h-[calc(100dvh-240px)] max-w-full break-inside-avoid-column rounded-lg object-contain",
   li: "my-1 pl-1",
   ol: "my-5 list-decimal space-y-1 pl-7 marker:text-violet-200",
   p: "my-5 break-inside-avoid-column whitespace-pre-wrap text-[1.05rem] leading-[1.9] text-slate-200",

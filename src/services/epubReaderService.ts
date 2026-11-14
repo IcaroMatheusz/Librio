@@ -161,6 +161,27 @@ function safeTitle(content: string, fallback: string): string {
   return title.slice(0, 180) || fallback;
 }
 
+function isOutlineDocument(root: Element, headingText: string): boolean {
+  const links = root.querySelectorAll("a");
+  if (links.length < 3) return false;
+
+  const normalizedHeading = headingText.replace(/\s+/g, " ").trim();
+  if (
+    /^(document outline|table of contents|contents|sumário|índice)$/i.test(
+      normalizedHeading,
+    )
+  ) {
+    return true;
+  }
+
+  const text = (root.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (!/^document\s*outline(?:\s*ch\s*\d|\s|$)/i.test(text)) return false;
+
+  const originalSizeEntries = text.match(/\[\s*original\s+size\s*\]/gi) ?? [];
+  const chapterEntries = text.match(/\bch\s*\d+/gi) ?? [];
+  return originalSizeEntries.length >= 3 || chapterEntries.length >= 3;
+}
+
 function getImageSource(element: Element): string | null {
   return [
     element.getAttribute("src"),
@@ -386,11 +407,7 @@ export async function extractEpub(
         contentDocument.body ?? contentDocument.documentElement;
       const heading = contentRoot.querySelector("h1, h2, h3, title");
       const headingText = heading?.textContent?.replace(/\s+/g, " ").trim() ?? "";
-      const looksLikeOutline =
-        /^(document outline|table of contents|contents|sumário|índice)$/i.test(
-          headingText,
-        ) && contentRoot.querySelectorAll("a").length >= 3;
-      if (looksLikeOutline) {
+      if (isOutlineDocument(contentRoot, headingText)) {
         onProgress?.(index + 1, spineItems.length);
         continue;
       }
