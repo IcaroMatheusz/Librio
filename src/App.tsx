@@ -4,10 +4,10 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
-import Login from "./pages/LoginPage";
-import Register from "./pages/RegisterPage";
-import Dashboard from "./pages/DashboardPage";
-import Profile from "./pages/ProfilePage";
+import Login from "./pages/auth/LoginPage";
+import Register from "./pages/auth/RegisterPage";
+import Dashboard from "./pages/home/DashboardPage";
+import Profile from "./pages/profile/ProfilePage";
 import ErrorScreen from "./pages/error/ErrorScreen";
 
 const DashboardPage = Dashboard as unknown as ComponentType<any>;
