@@ -1,4 +1,5 @@
-import { BookOpen, Pencil, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { BookOpen, ImagePlus, Pencil, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { Book } from "../types/database";
@@ -10,6 +11,9 @@ interface BookCardProps {
   to?: string;
   onRename?: () => void;
   onDelete?: () => void;
+  onCoverSelect?: (file: File) => void;
+  coverBusy?: boolean;
+  coverDisabled?: boolean;
 }
 
 export function BookCard({
@@ -19,16 +23,25 @@ export function BookCard({
   to,
   onRename,
   onDelete,
+  onCoverSelect,
+  coverBusy = false,
+  coverDisabled = false,
 }: BookCardProps) {
+  const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
+  const coverFailed = Boolean(
+    book.cover_url && failedCoverUrl === book.cover_url,
+  );
+
   const content = (
     <>
       <div className="relative aspect-[2/3] overflow-hidden bg-gradient-to-br from-[#322b55] via-[#222638] to-[#171A27]">
-        {book.cover_url ? (
+        {book.cover_url && !coverFailed ? (
           <img
             src={book.cover_url}
             alt={`Capa de ${book.title}`}
             loading="lazy"
             className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+            onError={() => setFailedCoverUrl(book.cover_url)}
           />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-4 text-center">
@@ -110,25 +123,45 @@ export function BookCard({
       ) : (
         content
       )}
-      {onRename && onDelete && (
-        <footer className="flex items-center gap-2 border-t border-white/[0.07] px-3 py-2.5">
+      {(onRename || onDelete || onCoverSelect) && (
+        <footer className="grid grid-cols-2 items-center gap-1.5 border-t border-white/[0.07] px-2 py-2.5 sm:gap-2 sm:px-3">
+          {onCoverSelect && (
+            <label className="col-span-2 inline-flex min-h-9 min-w-0 cursor-pointer items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 text-[10px] font-semibold text-slate-200 transition hover:border-violet-200/20 hover:bg-violet-200/[0.07] hover:text-violet-100 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-violet-200 sm:gap-1.5 sm:text-xs">
+              <input
+                type="file"
+                accept="image/*"
+                aria-label={`Selecionar capa para ${book.title}`}
+                disabled={coverBusy || coverDisabled}
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) onCoverSelect(file);
+                  event.target.value = "";
+                }}
+              />
+              <ImagePlus aria-hidden="true" size={14} />
+              <span>{coverBusy ? "Salvando" : "Capa"}</span>
+            </label>
+          )}
           <button
             type="button"
+            disabled={!onRename}
             onClick={onRename}
             aria-label={`Renomear ${book.title}`}
-            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2 text-xs font-semibold text-slate-200 transition hover:border-violet-200/20 hover:bg-violet-200/[0.07] hover:text-violet-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 sm:gap-2 sm:text-sm"
+            className="inline-flex min-h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-white/10 bg-white/[0.03] px-1 text-[10px] font-semibold text-slate-200 transition hover:border-violet-200/20 hover:bg-violet-200/[0.07] hover:text-violet-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 disabled:hidden sm:gap-1.5 sm:px-2 sm:text-xs"
           >
-            <Pencil aria-hidden="true" size={14} />
-            Renomear
+            <Pencil aria-hidden="true" size={14} className="shrink-0" />
+            <span className="hidden sm:inline">Renomear</span>
           </button>
           <button
             type="button"
+            disabled={!onDelete}
             onClick={onDelete}
             aria-label={`Excluir ${book.title}`}
-            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-rose-200/10 bg-rose-200/[0.03] px-2 text-xs font-semibold text-rose-200 transition hover:border-rose-200/25 hover:bg-rose-200/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200 sm:gap-2 sm:text-sm"
+            className="inline-flex min-h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-rose-200/10 bg-rose-200/[0.03] px-1 text-[10px] font-semibold text-rose-200 transition hover:border-rose-200/25 hover:bg-rose-200/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200 disabled:hidden sm:gap-1.5 sm:px-2 sm:text-xs"
           >
-            <Trash2 aria-hidden="true" size={14} />
-            Excluir
+            <Trash2 aria-hidden="true" size={14} className="shrink-0" />
+            <span className="hidden sm:inline">Excluir</span>
           </button>
         </footer>
       )}

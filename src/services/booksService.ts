@@ -1,5 +1,6 @@
 import { getSupabaseClient } from "../lib/supabase";
 import type { Book, BookFileType } from "../types/database";
+import { prepareManualBookCover } from "./coverPreviewService";
 import { getUserStorage } from "./storageService";
 
 export const BOOKS_BUCKET = "books";
@@ -199,12 +200,24 @@ export async function deleteBook(book: Book): Promise<string | null> {
   const storage = await getUserStorage();
   const filePaths = [book.file_path];
   let coverSize = 0;
-  if (book.cover_url) {
-    const userFolder = book.file_path.slice(
-      0,
-      book.file_path.lastIndexOf("/") + 1,
+  const { data: bookRecord, error: bookRecordError } = await client
+    .from("books")
+    .select("cover_url")
+    .eq("id", book.id)
+    .eq("user_id", book.user_id)
+    .single();
+
+  if (bookRecordError) {
+    throw new Error(
+      `Não foi possível verificar a capa antes de excluir a obra: ${bookRecordError.message}`,
     );
-    const coverPath = `${userFolder}${book.id}-cover.jpg`;
+  }
+
+  const coverPath =
+    bookRecord.cover_url && !/^https?:\/\//i.test(bookRecord.cover_url)
+      ? bookRecord.cover_url
+      : null;
+  if (coverPath) {
     const { data: cover, error: coverError } = await client.storage
       .from(BOOKS_BUCKET)
       .download(coverPath);
@@ -255,14 +268,185 @@ export async function deleteBook(book: Book): Promise<string | null> {
   return null;
 }
 
-export async function getBookFile(filePath: string): Promise<Blob> {
+export interface BookDownloadProgress {
+  loadedBytes: number;
+  totalBytes: number;
+  percent: number;
+}
+
+export type DownloadProgressCallback = (
+  progress: BookDownloadProgress,
+) => void;
+
+export async function getBookFile(
+  filePath: string,
+  expectedBytes: number,
+  onProgress: DownloadProgressCallback,
+): Promise<Blob> {
   const client = await getSupabaseClient();
   const { data, error } = await client.storage
     .from(BOOKS_BUCKET)
-    .download(filePath);
+    .createSignedUrl(filePath, 60);
 
-  if (error) throw new Error(`Não foi possível abrir o arquivo: ${error.message}`);
-  return data;
+  if (error) throw new Error(`Não foi possível preparar o arquivo: ${error.message}`);
+
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("GET", data.signedUrl);
+    request.responseType = "blob";
+    request.addEventListener("progress", (event) => {
+      const total = event.lengthComputable ? event.total : expectedBytes;
+      if (total > 0) {
+        onProgress({
+          loadedBytes: event.loaded,
+          totalBytes: total,
+          percent: Math.min(99, Math.round((event.loaded / total) * 100)),
+        });
+      }
+    });
+    request.addEventListener("load", () => {
+      if (request.status >= 200 && request.status < 300 && request.response instanceof Blob) {
+        onProgress({
+          loadedBytes: request.response.size,
+          totalBytes: request.response.size || expectedBytes,
+          percent: 100,
+        });
+        resolve(request.response);
+        return;
+      }
+      reject(
+        new Error(
+          `Não foi possível baixar o arquivo do armazenamento (HTTP ${request.status}).`,
+        ),
+      );
+    });
+    request.addEventListener("error", () => {
+      reject(new Error("Falha de conexão ao baixar a obra do armazenamento."));
+    });
+    request.addEventListener("abort", () => {
+      reject(new Error("O download da obra foi interrompido."));
+    });
+    request.send();
+  });
+}
+
+export async function uploadBookCover(
+  bookId: string,
+  imageFile: File,
+): Promise<{ book: Book; warning: string | null }> {
+  const cover = await prepareManualBookCover(imageFile);
+  const client = await getSupabaseClient();
+  const storage = await getUserStorage();
+  const { data: currentBook, error: currentBookError } = await client
+    .from("books")
+    .select(BOOK_FIELDS)
+    .eq("id", bookId)
+    .single();
+
+  if (currentBookError) {
+    throw new Error(`Não foi possível localizar a obra: ${currentBookError.message}`);
+  }
+
+  const oldCoverPath =
+    currentBook.cover_url && !/^https?:\/\//i.test(currentBook.cover_url)
+      ? currentBook.cover_url
+      : null;
+  let oldCoverSize = 0;
+  if (oldCoverPath) {
+    const { data: oldCover, error: oldCoverError } = await client.storage
+      .from(BOOKS_BUCKET)
+      .download(oldCoverPath);
+    if (oldCoverError && oldCoverError.statusCode !== "404") {
+      throw new Error(`Não foi possível verificar a capa atual: ${oldCoverError.message}`);
+    }
+    oldCoverSize = oldCover?.size ?? 0;
+  }
+
+  const nextUsedBytes = storage.used_bytes - oldCoverSize + cover.size;
+  if (nextUsedBytes > storage.max_bytes) {
+    throw new Error("Não há espaço disponível para armazenar esta capa.");
+  }
+
+  const newCoverPath = `${currentBook.user_id}/${currentBook.id}-cover-${crypto.randomUUID()}.jpg`;
+  try {
+    await uploadStorageFile(
+      client,
+      newCoverPath,
+      cover,
+      `${currentBook.id}-cover.jpg`,
+    );
+  } catch (uploadError) {
+    const cleanupError = await removeUploadedFiles(client, [newCoverPath]);
+    throw new Error(
+      `Não foi possível enviar a capa: ${
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Ocorreu um erro inesperado."
+      }${cleanupError ? ` Também não foi possível limpar o envio parcial: ${cleanupError}` : ""}`,
+      { cause: uploadError },
+    );
+  }
+
+  const { data: updatedBook, error: updateError } = await client
+    .from("books")
+    .update({ cover_url: newCoverPath })
+    .eq("id", currentBook.id)
+    .eq("user_id", currentBook.user_id)
+    .select(BOOK_FIELDS)
+    .single();
+
+  if (updateError) {
+    const cleanupError = await removeUploadedFiles(client, [newCoverPath]);
+    throw new Error(
+      `A capa foi enviada, mas não foi possível vinculá-la à obra: ${updateError.message}${
+        cleanupError ? ` Também não foi possível remover a capa enviada: ${cleanupError}` : ""
+      }`,
+    );
+  }
+
+  const { error: storageError } = await client
+    .from("user_storage")
+    .update({ used_bytes: nextUsedBytes })
+    .eq("user_id", currentBook.user_id)
+    .select("user_id")
+    .single();
+
+  if (storageError) {
+    const [restoreResult, cleanupError] = await Promise.all([
+      client
+        .from("books")
+        .update({ cover_url: currentBook.cover_url })
+        .eq("id", currentBook.id)
+        .eq("user_id", currentBook.user_id),
+      removeUploadedFiles(client, [newCoverPath]),
+    ]);
+    throw new Error(
+      `Não foi possível atualizar o armazenamento da capa: ${storageError.message}${
+        restoreResult.error
+          ? ` Também não foi possível restaurar a capa anterior: ${restoreResult.error.message}`
+          : ""
+      }${cleanupError ? ` Não foi possível remover a nova capa: ${cleanupError}` : ""}`,
+    );
+  }
+
+  let warning: string | null = null;
+  if (oldCoverPath) {
+    const cleanupError = await removeUploadedFiles(client, [oldCoverPath]);
+    if (cleanupError) {
+      const { error: restoreStorageError } = await client
+        .from("user_storage")
+        .update({ used_bytes: nextUsedBytes + oldCoverSize })
+        .eq("user_id", currentBook.user_id);
+      warning = `A nova capa foi salva, mas a antiga não pôde ser removida: ${cleanupError}${
+        restoreStorageError
+          ? ` O armazenamento também não pôde ser atualizado: ${restoreStorageError.message}`
+          : ""
+      }`;
+    }
+  }
+
+  const [book] = await signBookCovers([updatedBook]);
+  return { book, warning };
 }
 
 export async function uploadBook(

@@ -3,6 +3,7 @@ import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { extractFirstComicPage } from "./archiveReaderService";
 
 const MAX_PDF_COVER_DIMENSION = 1000;
+const MAX_MANUAL_COVER_BYTES = 10 * 1024 * 1024;
 
 async function optimizeCover(image: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(image);
@@ -91,4 +92,24 @@ export async function createBookCoverPreview(file: File): Promise<Blob> {
   }
 
   throw new Error("Não foi possível identificar o formato para gerar a capa.");
+}
+
+export async function prepareManualBookCover(file: File): Promise<Blob> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("A capa precisa ser um arquivo de imagem.");
+  }
+  if (file.size === 0 || file.size > MAX_MANUAL_COVER_BYTES) {
+    throw new Error("A imagem da capa deve ter até 10 MB.");
+  }
+
+  try {
+    return await optimizeCover(file);
+  } catch (caughtError) {
+    throw new Error(
+      caughtError instanceof Error
+        ? `Não foi possível preparar a capa: ${caughtError.message}`
+        : "Não foi possível preparar a imagem da capa.",
+      { cause: caughtError },
+    );
+  }
 }

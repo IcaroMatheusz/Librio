@@ -16,6 +16,8 @@ export interface ArchivePage {
   blob: Blob;
 }
 
+export type ArchiveProgress = (completed: number, total: number) => void;
+
 function getImageType(fileName: string): string {
   const extension = fileName.split(".").pop()?.toLowerCase();
   if (extension === "jpg") return "image/jpeg";
@@ -33,7 +35,10 @@ function comparePageNames(first: string, second: string): number {
   });
 }
 
-async function extractCbz(archive: Blob): Promise<ArchivePage[]> {
+async function extractCbz(
+  archive: Blob,
+  onProgress?: ArchiveProgress,
+): Promise<ArchivePage[]> {
   const reader = new ZipReader(new BlobReader(archive));
 
   try {
@@ -59,11 +64,12 @@ async function extractCbz(archive: Blob): Promise<ArchivePage[]> {
     }
 
     const pages: ArchivePage[] = [];
-    for (const entry of imageEntries) {
+    for (const [index, entry] of imageEntries.entries()) {
       pages.push({
         name: entry.filename,
         blob: await entry.getData(new BlobWriter()),
       });
+      onProgress?.(index + 1, imageEntries.length);
     }
 
     if (pages.length === 0) {
@@ -76,7 +82,10 @@ async function extractCbz(archive: Blob): Promise<ArchivePage[]> {
   }
 }
 
-async function extractCbr(archive: Blob): Promise<ArchivePage[]> {
+async function extractCbr(
+  archive: Blob,
+  onProgress?: ArchiveProgress,
+): Promise<ArchivePage[]> {
   const [{ createExtractorFromData }, wasmResponse] = await Promise.all([
     import("node-unrar-js/esm/index.esm.js"),
     fetch(unrarWasmUrl),
@@ -106,23 +115,25 @@ async function extractCbr(archive: Blob): Promise<ArchivePage[]> {
     throw new Error("Este CBR não contém páginas de imagem compatíveis.");
   }
 
-  const extractedFiles = extractor.extract({
-    files: fileHeaders.map(({ name }) => name),
-  });
-
-  const pages = Array.from(extractedFiles.files).flatMap((file) => {
-    if (!file.extraction || file.fileHeader.flags.directory) return [];
-    const imageBytes = new Uint8Array(file.extraction.length);
-    imageBytes.set(file.extraction);
-    return [
-      {
+  const pages: ArchivePage[] = [];
+  for (const [index, header] of fileHeaders.entries()) {
+    const extractedFiles = extractor.extract({ files: [header.name] });
+    const file = Array.from(extractedFiles.files).find(
+      (entry) => entry.extraction && !entry.fileHeader.flags.directory,
+    );
+    if (file?.extraction) {
+      const imageBytes = new Uint8Array(file.extraction.length);
+      imageBytes.set(file.extraction);
+      pages.push({
         name: file.fileHeader.name,
         blob: new Blob([imageBytes], {
           type: getImageType(file.fileHeader.name),
         }),
-      },
-    ];
-  });
+      });
+    }
+    onProgress?.(index + 1, fileHeaders.length);
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  }
 
   return sortPages(pages);
 }
@@ -214,8 +225,9 @@ export async function extractFirstComicPage(
 export async function extractComicPages(
   fileType: string,
   archive: Blob,
+  onProgress?: ArchiveProgress,
 ): Promise<ArchivePage[]> {
-  if (fileType === "CBZ") return extractCbz(archive);
-  if (fileType === "CBR") return extractCbr(archive);
+  if (fileType === "CBZ") return extractCbz(archive, onProgress);
+  if (fileType === "CBR") return extractCbr(archive, onProgress);
   throw new Error("Este formato não é um arquivo de quadrinhos compatível.");
 }

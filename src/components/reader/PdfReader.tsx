@@ -9,6 +9,8 @@ import {
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
+import { ReaderLoading } from "./ReaderLoading";
+
 interface PdfReaderProps {
   file: Blob;
   initialProgress: number;
@@ -232,9 +234,12 @@ export function PdfReader({
 
   if (loading) {
     return (
-      <p role="status" className="m-auto p-8 text-slate-300">
-        Preparando o PDF...
-      </p>
+      <ReaderLoading
+        title="Preparando seu PDF"
+        detail="Interpretando a estrutura do arquivo e preparando a primeira página…"
+        percent={null}
+        progressText="Download concluído · construindo o leitor"
+      />
     );
   }
 
@@ -250,9 +255,9 @@ export function PdfReader({
     <section
       ref={readerRef}
       aria-label="Leitor de PDF"
-      className="flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#202435]"
+      className="flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#151827] shadow-2xl shadow-black/25"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-2 py-2 sm:px-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#202435]/90 px-2 py-2 backdrop-blur sm:px-4">
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -277,7 +282,9 @@ export function PdfReader({
               }}
               className="h-9 w-14 rounded-lg border border-white/10 bg-[#171A27] text-center text-sm text-white focus-visible:outline-2 focus-visible:outline-violet-200"
             />
-            <span aria-live="polite">/ {pdfDocument.numPages}</span>
+            <span aria-live="polite" className="text-slate-500">
+              / {pdfDocument.numPages}
+            </span>
           </label>
           <button
             type="button"
@@ -335,7 +342,7 @@ export function PdfReader({
 
       <div
         ref={pageViewportRef}
-        className="flex flex-1 items-center justify-center overflow-auto p-4"
+        className="flex flex-1 items-center justify-center overflow-auto bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)] p-4"
       >
         {renderError ? (
           <p role="alert" className="text-center text-sm text-rose-200">
@@ -350,7 +357,7 @@ export function PdfReader({
         )}
       </div>
 
-      <footer className="flex min-h-9 items-center justify-end border-t border-white/10 px-4 text-xs text-slate-400">
+      <footer className="flex min-h-9 items-center justify-end border-t border-white/[0.08] bg-[#202435]/70 px-4 text-xs text-slate-400">
         {saveStatus === "saving" && <span role="status">Salvando progresso…</span>}
         {saveStatus === "saved" && <span role="status">Progresso salvo</span>}
         {saveStatus === "error" && (

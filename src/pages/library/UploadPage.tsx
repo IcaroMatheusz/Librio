@@ -11,6 +11,7 @@ import {
   Check,
   FileArchive,
   FileText,
+  ImagePlus,
   Sparkles,
   Upload,
 } from "lucide-react";
@@ -20,7 +21,10 @@ import sanjiSitting from "../../assets/sanjiwithchopper.png";
 import { UploadResultModal } from "../../components/library/UploadResultModal";
 import { useAuth } from "../../contexts/useAuth";
 import { uploadBook } from "../../services/booksService";
-import { createBookCoverPreview } from "../../services/coverPreviewService";
+import {
+  createBookCoverPreview,
+  prepareManualBookCover,
+} from "../../services/coverPreviewService";
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-white/10 bg-[#171A27] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-violet-300 focus:ring-4 focus:ring-violet-300/10 disabled:cursor-not-allowed disabled:opacity-60";
@@ -44,17 +48,26 @@ export default function UploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStage, setUploadStage] = useState("");
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [manualCoverFile, setManualCoverFile] = useState<File | null>(null);
+  const [manualCoverUrl, setManualCoverUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!coverUrl) return;
     return () => URL.revokeObjectURL(coverUrl);
   }, [coverUrl]);
 
+  useEffect(() => {
+    if (!manualCoverUrl) return;
+    return () => URL.revokeObjectURL(manualCoverUrl);
+  }, [manualCoverUrl]);
+
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0] ?? null;
     setResult(null);
     setCoverUrl(null);
     setFile(null);
+    setManualCoverFile(null);
+    setManualCoverUrl(null);
 
     if (!selectedFile) return;
     const extension = selectedFile.name.split(".").pop()?.toLowerCase();
@@ -79,6 +92,31 @@ export default function UploadPage() {
     );
   }
 
+  function handleManualCoverChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedCover = event.target.files?.[0] ?? null;
+    setResult(null);
+    setManualCoverFile(null);
+    setManualCoverUrl(null);
+    if (!selectedCover) return;
+    if (!selectedCover.type.startsWith("image/")) {
+      setResult({
+        type: "error",
+        message: "A capa precisa ser um arquivo de imagem.",
+      });
+      return;
+    }
+    if (selectedCover.size > 10 * 1024 * 1024) {
+      setResult({
+        type: "error",
+        message: "A imagem da capa deve ter até 10 MB.",
+      });
+      return;
+    }
+
+    setManualCoverFile(selectedCover);
+    setManualCoverUrl(URL.createObjectURL(selectedCover));
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!user || !file) {
@@ -89,7 +127,11 @@ export default function UploadPage() {
     setResult(null);
     setCoverUrl(null);
     setUploadProgress(0);
-    setUploadStage("Preparando a prévia da capa...");
+    setUploadStage(
+      manualCoverFile
+        ? "Preparando a capa escolhida..."
+        : "Preparando a prévia da capa...",
+    );
     setUploading(true);
 
     let generatedCoverUrl: string | null = null;
@@ -97,12 +139,17 @@ export default function UploadPage() {
     let coverUnavailable = false;
 
     try {
-      try {
-        const cover = await createBookCoverPreview(file);
-        coverPreview = cover;
-        generatedCoverUrl = URL.createObjectURL(cover);
-      } catch {
-        coverUnavailable = true;
+      if (manualCoverFile) {
+        coverPreview = await prepareManualBookCover(manualCoverFile);
+        generatedCoverUrl = URL.createObjectURL(coverPreview);
+      } else {
+        try {
+          const cover = await createBookCoverPreview(file);
+          coverPreview = cover;
+          generatedCoverUrl = URL.createObjectURL(cover);
+        } catch {
+          coverUnavailable = true;
+        }
       }
 
       setUploadStage("Enviando arquivo...");
@@ -225,6 +272,51 @@ export default function UploadPage() {
                     {file
                       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB · pronto para enviar`
                       : "PDF, CBR ou CBZ · até 100 MB"}
+                  </span>
+                </label>
+              </div>
+
+              <div>
+                <p className="text-sm font-bold text-slate-200">
+                  Capa personalizada{" "}
+                  <span className="font-normal text-slate-500">(opcional)</span>
+                </p>
+                <input
+                  id="manual-book-cover"
+                  type="file"
+                  accept="image/*"
+                  disabled={uploading}
+                  onChange={handleManualCoverChange}
+                  className="peer sr-only"
+                />
+                <label
+                  htmlFor="manual-book-cover"
+                  className={`mt-2 flex min-h-24 cursor-pointer items-center gap-4 rounded-2xl border border-dashed border-white/15 bg-[#171A27]/60 p-3 transition hover:border-violet-300/40 hover:bg-violet-300/[0.04] focus-within:ring-4 focus-within:ring-violet-300/10 ${
+                    uploading ? "cursor-not-allowed opacity-60" : ""
+                  }`}
+                >
+                  {manualCoverUrl ? (
+                    <img
+                      src={manualCoverUrl}
+                      alt="Prévia da capa personalizada"
+                      className="h-20 w-14 rounded-lg object-cover shadow-lg"
+                    />
+                  ) : (
+                    <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
+                      <ImagePlus aria-hidden="true" size={22} />
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-slate-100">
+                      {manualCoverFile
+                        ? manualCoverFile.name
+                        : "Escolher uma imagem para a capa"}
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-400">
+                      {manualCoverFile
+                        ? "A imagem será otimizada e enviada junto com a obra."
+                        : "Opcional · JPG, PNG ou WEBP · até 10 MB"}
+                    </span>
                   </span>
                 </label>
               </div>
