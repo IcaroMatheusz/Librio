@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { ReaderLoading } from "./ReaderLoading";
+import { usePinchZoom } from "../../hooks/usePinchZoom";
 import {
   extractComicPages,
   type ArchivePage,
@@ -51,6 +52,7 @@ export function ComicReader({
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
+  const pinchZoom = usePinchZoom(zoom, setZoom);
 
   const changePage = useCallback(
     (delta: number) => {
@@ -170,7 +172,7 @@ export function ComicReader({
       } else if (event.key === "ArrowRight") {
         changePage(1);
       } else if (event.key === "+" || event.key === "=") {
-        setZoom((current) => Math.min(2, current + 0.1));
+        setZoom((current) => Math.min(3, current + 0.1));
       } else if (event.key === "-") {
         setZoom((current) => Math.max(0.5, current - 0.1));
       }
@@ -181,6 +183,7 @@ export function ComicReader({
   }, [changePage]);
 
   function navigateFromPageClick(event: MouseEvent<HTMLElement>) {
+    if (pinchZoom.consumePinchClick()) return;
     if (event.button !== 0 || !(event.target instanceof HTMLImageElement)) {
       return;
     }
@@ -260,8 +263,8 @@ export function ComicReader({
           </span>
           <button
             type="button"
-            onClick={() => setZoom((current) => Math.min(2, current + 0.1))}
-            disabled={zoom >= 2}
+            onClick={() => setZoom((current) => Math.min(3, current + 0.1))}
+            disabled={zoom >= 3}
             aria-label="Aumentar zoom"
             className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
           >
@@ -296,13 +299,25 @@ export function ComicReader({
         </button>
         <div
           onClick={navigateFromPageClick}
-          className="flex min-w-0 items-center justify-center"
+          onPointerDown={pinchZoom.handlePointerDown}
+          onPointerMove={pinchZoom.handlePointerMove}
+          onPointerUp={pinchZoom.handlePointerUp}
+          onPointerCancel={pinchZoom.handlePointerCancel}
+          className={`h-full min-h-0 min-w-0 overflow-auto ${
+            zoom > 1
+              ? "flex items-start justify-start"
+              : "flex items-center justify-center"
+          }`}
+          style={{ touchAction: "pan-x pan-y" }}
         >
           <img
             src={currentPage.url}
             alt={`Página ${pageIndex + 1} de ${pages.length}`}
-            className="max-h-[calc(100dvh-180px)] max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40 transition-transform duration-200"
-            style={{ transform: `scale(${zoom})` }}
+            className="max-h-[calc(100dvh-180px)] max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40"
+            style={{
+              zoom,
+              transform: `scale(${pinchZoom.previewScale})`,
+            }}
           />
         </div>
         <button

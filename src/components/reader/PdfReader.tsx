@@ -19,6 +19,7 @@ import {
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
+import { usePinchZoom } from "../../hooks/usePinchZoom";
 import { ReaderLoading } from "./ReaderLoading";
 
 interface PdfReaderProps {
@@ -56,6 +57,7 @@ export function PdfReader({
   const [isDocumentVisible, setIsDocumentVisible] = useState(
     () => document.visibilityState === "visible",
   );
+  const pinchZoom = usePinchZoom(zoom, setZoom);
 
   useEffect(() => {
     let active = true;
@@ -258,7 +260,7 @@ export function PdfReader({
       } else if (event.key === "ArrowRight") {
         changePage(1);
       } else if (event.key === "+" || event.key === "=") {
-        setZoom((current) => Math.min(2, current + 0.1));
+        setZoom((current) => Math.min(3, current + 0.1));
       } else if (event.key === "-") {
         setZoom((current) => Math.max(0.5, current - 0.1));
       }
@@ -295,6 +297,7 @@ export function PdfReader({
   }
 
   function navigateFromPageClick(event: MouseEvent<HTMLDivElement>) {
+    if (pinchZoom.consumePinchClick()) return;
     if (event.button !== 0 || !(event.target instanceof HTMLCanvasElement)) {
       return;
     }
@@ -388,8 +391,8 @@ export function PdfReader({
           </span>
           <button
             type="button"
-            onClick={() => setZoom((current) => Math.min(2, current + 0.1))}
-            disabled={zoom >= 2}
+            onClick={() => setZoom((current) => Math.min(3, current + 0.1))}
+            disabled={zoom >= 3}
             aria-label="Aumentar zoom"
             className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
           >
@@ -432,12 +435,22 @@ export function PdfReader({
           <div
             ref={pageViewportRef}
             onClick={navigateFromPageClick}
-            className="flex min-w-0 items-center justify-center"
+            onPointerDown={pinchZoom.handlePointerDown}
+            onPointerMove={pinchZoom.handlePointerMove}
+            onPointerUp={pinchZoom.handlePointerUp}
+            onPointerCancel={pinchZoom.handlePointerCancel}
+            className={`flex min-h-0 min-w-0 overflow-auto ${
+              zoom > 1
+                ? "items-start justify-start"
+                : "items-center justify-center"
+            }`}
+            style={{ touchAction: "pan-x pan-y" }}
           >
             <canvas
               ref={canvasRef}
               aria-label={`Página ${pageNumber} de ${pdfDocument.numPages}`}
-              className="max-w-full cursor-pointer object-contain shadow-2xl shadow-black/30"
+              className="cursor-pointer object-contain shadow-2xl shadow-black/30"
+              style={{ transform: `scale(${pinchZoom.previewScale})` }}
             />
           </div>
         )}
