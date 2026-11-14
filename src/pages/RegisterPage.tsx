@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff, BookOpen } from "lucide-react";
 import { Link } from "react-router";
-import { useNavigate } from "react-router-dom";
 
 type Credentials = {
   username: string;
