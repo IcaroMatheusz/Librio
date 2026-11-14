@@ -4,6 +4,7 @@ import { prepareManualBookCover } from "./coverPreviewService";
 import { getUserStorage } from "./storageService";
 
 export const BOOKS_BUCKET = "books";
+export const COVERARTS_BUCKET = "coverarts";
 // TODO: Criar o bucket privado "books" no Supabase e permitir acesso somente à pasta auth.uid().
 const BOOK_FIELDS =
   "id, user_id, title, author, description, cover_url, file_path, file_type, file_size, created_at, updated_at";
@@ -65,9 +66,10 @@ async function uploadStorageFile(
   file: Blob,
   fileName: string,
   onProgress: (progress: number) => void = () => {},
+  bucket: string = BOOKS_BUCKET,
 ): Promise<void> {
   const { data, error } = await client.storage
-    .from(BOOKS_BUCKET)
+    .from(bucket)
     .createSignedUploadUrl(filePath);
 
   if (error) {
@@ -80,9 +82,10 @@ async function uploadStorageFile(
 async function removeUploadedFiles(
   client: Awaited<ReturnType<typeof getSupabaseClient>>,
   filePaths: string[],
+  bucket: string = BOOKS_BUCKET,
 ): Promise<string | null> {
   if (filePaths.length === 0) return null;
-  const { error } = await client.storage.from(BOOKS_BUCKET).remove(filePaths);
+  const { error } = await client.storage.from(bucket).remove(filePaths);
   return error?.message ?? null;
 }
 
@@ -97,24 +100,38 @@ export async function signBookCovers(books: Book[]): Promise<Book[]> {
   if (paths.length === 0) return books;
 
   const client = await getSupabaseClient();
-  const { data, error } = await client.storage
-    .from(BOOKS_BUCKET)
-    .createSignedUrls([...new Set(paths)], 60 * 60);
+  const uniquePaths = [...new Set(paths)];
+  const urlsByPath = new Map<string, string>();
+  const errorsByPath = new Map<string, string>();
 
-  if (error) {
-    throw new Error(`Não foi possível carregar as capas das obras: ${error.message}`);
+  for (const bucket of [COVERARTS_BUCKET, BOOKS_BUCKET]) {
+    const unresolvedPaths = uniquePaths.filter((path) => !urlsByPath.has(path));
+    if (unresolvedPaths.length === 0) break;
+
+    const { data, error } = await client.storage
+      .from(bucket)
+      .createSignedUrls(unresolvedPaths, 60 * 60);
+    if (error) {
+      for (const path of unresolvedPaths) errorsByPath.set(path, error.message);
+      continue;
+    }
+
+    for (const { error: coverError, path, signedUrl } of data) {
+      if (!coverError && path && signedUrl) {
+        urlsByPath.set(path, signedUrl);
+      } else if (path) {
+        errorsByPath.set(path, coverError ?? "resposta incompleta do Storage.");
+      }
+    }
   }
 
-  const urlsByPath = new Map<string, string>();
-  for (const { error: coverError, path, signedUrl } of data) {
-    if (coverError || !path || !signedUrl) {
-      throw new Error(
-        `Não foi possível gerar o link de uma capa: ${
-          coverError ?? "resposta incompleta do Storage."
-        }`,
-      );
-    }
-    urlsByPath.set(path, signedUrl);
+  const unresolvedPath = uniquePaths.find((path) => !urlsByPath.has(path));
+  if (unresolvedPath) {
+    throw new Error(
+      `Não foi possível carregar uma capa: ${
+        errorsByPath.get(unresolvedPath) ?? "link assinado não retornado pelo Storage."
+      }`,
+    );
   }
 
   return books.map((book) => {
@@ -198,7 +215,7 @@ export async function renameBook(bookId: string, title: string): Promise<Book> {
 export async function deleteBook(book: Book): Promise<string | null> {
   const client = await getSupabaseClient();
   const storage = await getUserStorage();
-  const filePaths = [book.file_path];
+  let coverBucket = COVERARTS_BUCKET;
   let coverSize = 0;
   const { data: bookRecord, error: bookRecordError } = await client
     .from("books")
@@ -218,9 +235,18 @@ export async function deleteBook(book: Book): Promise<string | null> {
       ? bookRecord.cover_url
       : null;
   if (coverPath) {
-    const { data: cover, error: coverError } = await client.storage
-      .from(BOOKS_BUCKET)
+    let { data: cover, error: coverError } = await client.storage
+      .from(COVERARTS_BUCKET)
       .download(coverPath);
+
+    if (coverError?.statusCode === "404") {
+      coverBucket = BOOKS_BUCKET;
+      const legacyCover = await client.storage
+        .from(BOOKS_BUCKET)
+        .download(coverPath);
+      cover = legacyCover.data;
+      coverError = legacyCover.error;
+    }
 
     if (coverError && coverError.statusCode !== "404") {
       throw new Error(
@@ -229,7 +255,6 @@ export async function deleteBook(book: Book): Promise<string | null> {
     }
     if (cover) {
       coverSize = cover.size;
-      filePaths.push(coverPath);
     }
   }
 
@@ -248,9 +273,19 @@ export async function deleteBook(book: Book): Promise<string | null> {
     throw new Error("A obra não foi encontrada ou não pode ser excluída.");
   }
 
-  const cleanupError = await removeUploadedFiles(client, filePaths);
-  if (cleanupError) {
-    return `A obra foi removida da biblioteca, mas não foi possível limpar os arquivos do armazenamento: ${cleanupError}`;
+  const [bookCleanupError, coverCleanupError] = await Promise.all([
+    removeUploadedFiles(client, [book.file_path]),
+    coverPath
+      ? removeUploadedFiles(client, [coverPath], coverBucket)
+      : Promise.resolve(null),
+  ]);
+  if (bookCleanupError || coverCleanupError) {
+    return `A obra foi removida da biblioteca, mas não foi possível limpar todos os arquivos do armazenamento: ${[
+      bookCleanupError,
+      coverCleanupError,
+    ]
+      .filter(Boolean)
+      .join("; ")}`;
   }
 
   const { error: storageError } = await client
@@ -351,11 +386,20 @@ export async function uploadBookCover(
     currentBook.cover_url && !/^https?:\/\//i.test(currentBook.cover_url)
       ? currentBook.cover_url
       : null;
+  let oldCoverBucket = COVERARTS_BUCKET;
   let oldCoverSize = 0;
   if (oldCoverPath) {
-    const { data: oldCover, error: oldCoverError } = await client.storage
-      .from(BOOKS_BUCKET)
+    let { data: oldCover, error: oldCoverError } = await client.storage
+      .from(COVERARTS_BUCKET)
       .download(oldCoverPath);
+    if (oldCoverError?.statusCode === "404") {
+      oldCoverBucket = BOOKS_BUCKET;
+      const legacyCover = await client.storage
+        .from(BOOKS_BUCKET)
+        .download(oldCoverPath);
+      oldCover = legacyCover.data;
+      oldCoverError = legacyCover.error;
+    }
     if (oldCoverError && oldCoverError.statusCode !== "404") {
       throw new Error(`Não foi possível verificar a capa atual: ${oldCoverError.message}`);
     }
@@ -374,15 +418,27 @@ export async function uploadBookCover(
       newCoverPath,
       cover,
       `${currentBook.id}-cover.jpg`,
+      undefined,
+      COVERARTS_BUCKET,
     );
   } catch (uploadError) {
-    const cleanupError = await removeUploadedFiles(client, [newCoverPath]);
+    const cleanupError = await removeUploadedFiles(
+      client,
+      [newCoverPath],
+      COVERARTS_BUCKET,
+    );
+    const uploadErrorMessage =
+      uploadError instanceof Error
+        ? uploadError.message
+        : "Ocorreu um erro inesperado.";
+    const mimeTypeError = uploadErrorMessage.match(
+      /mime type ([\w.+-]+\/[\w.+-]+) is not supported/i,
+    );
+    const userMessage = mimeTypeError
+      ? `O bucket "coverarts" não permite o tipo ${mimeTypeError[1]}. Adicione esse MIME type aos tipos permitidos nas configurações do Storage do Supabase.`
+      : uploadErrorMessage;
     throw new Error(
-      `Não foi possível enviar a capa: ${
-        uploadError instanceof Error
-          ? uploadError.message
-          : "Ocorreu um erro inesperado."
-      }${cleanupError ? ` Também não foi possível limpar o envio parcial: ${cleanupError}` : ""}`,
+      `Não foi possível enviar a capa: ${userMessage}${cleanupError ? ` Também não foi possível limpar o envio parcial: ${cleanupError}` : ""}`,
       { cause: uploadError },
     );
   }
@@ -396,7 +452,11 @@ export async function uploadBookCover(
     .single();
 
   if (updateError) {
-    const cleanupError = await removeUploadedFiles(client, [newCoverPath]);
+    const cleanupError = await removeUploadedFiles(
+      client,
+      [newCoverPath],
+      COVERARTS_BUCKET,
+    );
     throw new Error(
       `A capa foi enviada, mas não foi possível vinculá-la à obra: ${updateError.message}${
         cleanupError ? ` Também não foi possível remover a capa enviada: ${cleanupError}` : ""
@@ -418,7 +478,7 @@ export async function uploadBookCover(
         .update({ cover_url: currentBook.cover_url })
         .eq("id", currentBook.id)
         .eq("user_id", currentBook.user_id),
-      removeUploadedFiles(client, [newCoverPath]),
+      removeUploadedFiles(client, [newCoverPath], COVERARTS_BUCKET),
     ]);
     throw new Error(
       `Não foi possível atualizar o armazenamento da capa: ${storageError.message}${
@@ -431,7 +491,11 @@ export async function uploadBookCover(
 
   let warning: string | null = null;
   if (oldCoverPath) {
-    const cleanupError = await removeUploadedFiles(client, [oldCoverPath]);
+    const cleanupError = await removeUploadedFiles(
+      client,
+      [oldCoverPath],
+      oldCoverBucket,
+    );
     if (cleanupError) {
       const { error: restoreStorageError } = await client
         .from("user_storage")
@@ -485,6 +549,7 @@ export async function uploadBook(
   const coverPath =
     canStoreCover && coverPreview ? `${userId}/${bookId}-cover.jpg` : null;
   const uploadedPaths = [filePath];
+  const uploadedCoverPaths: string[] = [];
 
   try {
     await uploadStorageFile(
@@ -527,11 +592,16 @@ export async function uploadBook(
                 100,
             ),
           ),
+        COVERARTS_BUCKET,
       );
       savedCoverPath = coverPath;
-      uploadedPaths.push(coverPath);
+      uploadedCoverPaths.push(coverPath);
     } catch (coverUploadError) {
-      const cleanupError = await removeUploadedFiles(client, [coverPath]);
+      const cleanupError = await removeUploadedFiles(
+        client,
+        [coverPath],
+        COVERARTS_BUCKET,
+      );
       if (cleanupError) {
         const fileCleanupError = await removeUploadedFiles(client, [filePath]);
         throw new Error(
@@ -563,10 +633,18 @@ export async function uploadBook(
     .single();
 
   if (insertError) {
-    const cleanupError = await removeUploadedFiles(client, uploadedPaths);
-    if (cleanupError) {
+    const [cleanupError, coverCleanupError] = await Promise.all([
+      removeUploadedFiles(client, uploadedPaths),
+      removeUploadedFiles(client, uploadedCoverPaths, COVERARTS_BUCKET),
+    ]);
+    if (cleanupError || coverCleanupError) {
       throw new Error(
-        `Não foi possível salvar a obra (${insertError.message}) nem remover os arquivos enviados (${cleanupError}).`,
+        `Não foi possível salvar a obra (${insertError.message}) nem remover os arquivos enviados (${[
+          cleanupError,
+          coverCleanupError,
+        ]
+          .filter(Boolean)
+          .join("; ")}).`,
       );
     }
     throw new Error(`Não foi possível salvar a obra: ${insertError.message}`);
@@ -585,12 +663,16 @@ export async function uploadBook(
     .single();
 
   if (storageError) {
-    const [deleteBookResult, cleanupError] = await Promise.all([
+    const [deleteBookResult, cleanupErrors] = await Promise.all([
       client.from("books").delete().eq("id", book.id),
-      removeUploadedFiles(client, uploadedPaths),
+      Promise.all([
+        removeUploadedFiles(client, uploadedPaths),
+        removeUploadedFiles(client, uploadedCoverPaths, COVERARTS_BUCKET),
+      ]),
     ]);
+    const cleanupError = cleanupErrors.filter(Boolean).join("; ");
 
-    if (deleteBookResult.error || cleanupError) {
+    if (deleteBookResult.error || cleanupErrors.some(Boolean)) {
       throw new Error(
         `A obra foi enviada, mas houve falhas ao atualizar o armazenamento ou desfazer o envio: ${storageError.message}${
           deleteBookResult.error ? `; ${deleteBookResult.error.message}` : ""
