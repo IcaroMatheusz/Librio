@@ -4,6 +4,40 @@ import { extractFirstComicPage } from "./archiveReaderService";
 
 const MAX_PDF_COVER_DIMENSION = 1000;
 
+async function optimizeCover(image: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(image);
+  try {
+    const scale = Math.min(
+      1,
+      MAX_PDF_COVER_DIMENSION / Math.max(bitmap.width, bitmap.height),
+    );
+    const canvas = window.document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Não foi possível preparar a imagem da capa.");
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+        reject(new Error("Não foi possível otimizar a imagem da capa."));
+      }, "image/jpeg", 0.82);
+    });
+  } finally {
+    bitmap.close();
+  }
+}
+
 async function createPdfCover(file: File): Promise<Blob> {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -50,10 +84,10 @@ async function createPdfCover(file: File): Promise<Blob> {
 export async function createBookCoverPreview(file: File): Promise<Blob> {
   const extension = file.name.split(".").pop()?.toLowerCase();
 
-  if (extension === "pdf") return createPdfCover(file);
+  if (extension === "pdf") return optimizeCover(await createPdfCover(file));
   if (extension === "cbr" || extension === "cbz") {
     const page = await extractFirstComicPage(extension.toUpperCase(), file);
-    return page.blob;
+    return optimizeCover(page.blob);
   }
 
   throw new Error("Não foi possível identificar o formato para gerar a capa.");

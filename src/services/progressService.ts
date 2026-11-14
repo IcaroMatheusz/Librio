@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "../lib/supabase";
+import { signBookCovers } from "./booksService";
 import type { Book, RecentRead } from "../types/database";
 
 export interface ProgressCounts {
@@ -31,7 +32,10 @@ export async function getRecentReads(): Promise<RecentRead[]> {
     throw new Error(`Não foi possível carregar as obras lidas: ${booksError.message}`);
   }
 
-  const booksById = new Map<string, Book>(books.map((book) => [book.id, book]));
+  const booksWithSignedCovers = await signBookCovers(books);
+  const booksById = new Map<string, Book>(
+    booksWithSignedCovers.map((book) => [book.id, book]),
+  );
 
   return progressRows.flatMap((progress) => {
     const book = booksById.get(progress.book_id);

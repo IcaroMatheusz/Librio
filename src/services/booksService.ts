@@ -9,14 +9,15 @@ const BOOK_FIELDS =
 
 function uploadFileWithProgress(
   signedUrl: string,
-  file: File,
+  file: Blob,
+  fileName: string,
   onProgress: (progress: number) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     const body = new FormData();
     body.append("cacheControl", "3600");
-    body.append("", file);
+    body.append("", file, fileName);
 
     request.open("PUT", signedUrl);
     request.upload.addEventListener("progress", (event) => {
@@ -57,6 +58,73 @@ function uploadFileWithProgress(
   });
 }
 
+async function uploadStorageFile(
+  client: Awaited<ReturnType<typeof getSupabaseClient>>,
+  filePath: string,
+  file: Blob,
+  fileName: string,
+  onProgress: (progress: number) => void = () => {},
+): Promise<void> {
+  const { data, error } = await client.storage
+    .from(BOOKS_BUCKET)
+    .createSignedUploadUrl(filePath);
+
+  if (error) {
+    throw new Error(`Não foi possível preparar o arquivo: ${error.message}`);
+  }
+
+  await uploadFileWithProgress(data.signedUrl, file, fileName, onProgress);
+}
+
+async function removeUploadedFiles(
+  client: Awaited<ReturnType<typeof getSupabaseClient>>,
+  filePaths: string[],
+): Promise<string | null> {
+  if (filePaths.length === 0) return null;
+  const { error } = await client.storage.from(BOOKS_BUCKET).remove(filePaths);
+  return error?.message ?? null;
+}
+
+export async function signBookCovers(books: Book[]): Promise<Book[]> {
+  const paths = books
+    .map((book) => book.cover_url)
+    .filter(
+      (coverUrl): coverUrl is string =>
+        coverUrl !== null && !/^https?:\/\//i.test(coverUrl),
+    );
+
+  if (paths.length === 0) return books;
+
+  const client = await getSupabaseClient();
+  const { data, error } = await client.storage
+    .from(BOOKS_BUCKET)
+    .createSignedUrls([...new Set(paths)], 60 * 60);
+
+  if (error) {
+    throw new Error(`Não foi possível carregar as capas das obras: ${error.message}`);
+  }
+
+  const urlsByPath = new Map<string, string>();
+  for (const { error: coverError, path, signedUrl } of data) {
+    if (coverError || !path || !signedUrl) {
+      throw new Error(
+        `Não foi possível gerar o link de uma capa: ${
+          coverError ?? "resposta incompleta do Storage."
+        }`,
+      );
+    }
+    urlsByPath.set(path, signedUrl);
+  }
+
+  return books.map((book) => {
+    if (!book.cover_url || /^https?:\/\//i.test(book.cover_url)) return book;
+    return {
+      ...book,
+      cover_url: urlsByPath.get(book.cover_url) ?? null,
+    };
+  });
+}
+
 export async function getRecentBooks(): Promise<Book[]> {
   const client = await getSupabaseClient();
   const { data, error } = await client
@@ -66,7 +134,7 @@ export async function getRecentBooks(): Promise<Book[]> {
     .limit(5);
 
   if (error) throw new Error(`Não foi possível carregar as obras: ${error.message}`);
-  return data;
+  return signBookCovers(data);
 }
 
 export async function getBookCount(): Promise<number> {
@@ -87,7 +155,7 @@ export async function getBooks(): Promise<Book[]> {
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(`Não foi possível carregar a biblioteca: ${error.message}`);
-  return data;
+  return signBookCovers(data);
 }
 
 export async function getBookById(bookId: string): Promise<Book> {
@@ -99,7 +167,8 @@ export async function getBookById(bookId: string): Promise<Book> {
     .single();
 
   if (error) throw new Error(`Não foi possível encontrar esta obra: ${error.message}`);
-  return data;
+  const [book] = await signBookCovers([data]);
+  return book;
 }
 
 export async function getBookFile(filePath: string): Promise<Blob> {
@@ -118,6 +187,7 @@ export async function uploadBook(
   title: string,
   author: string,
   onProgress: (progress: number) => void = () => {},
+  coverPreview?: Blob,
 ): Promise<Book> {
   const extension = file.name.split(".").pop()?.toLowerCase();
   const fileTypes: Record<string, BookFileType> = {
@@ -132,34 +202,81 @@ export async function uploadBook(
   if (file.size === 0) throw new Error("O arquivo está vazio.");
 
   const storage = await getUserStorage();
-  if (storage.used_bytes + file.size > storage.max_bytes) {
+  const canStoreCover =
+    Boolean(coverPreview) &&
+    storage.used_bytes + file.size + (coverPreview?.size ?? 0) <=
+      storage.max_bytes;
+  const totalSize = file.size + (canStoreCover ? (coverPreview?.size ?? 0) : 0);
+  if (storage.used_bytes + totalSize > storage.max_bytes) {
     throw new Error("Este arquivo ultrapassa o espaço disponível na sua biblioteca.");
   }
 
   const client = await getSupabaseClient();
   const bookId = crypto.randomUUID();
   const filePath = `${userId}/${bookId}.${fileType}`;
-  const { data: signedUpload, error: signedUploadError } = await client.storage
-    .from(BOOKS_BUCKET)
-    .createSignedUploadUrl(filePath);
-
-  if (signedUploadError) {
-    throw new Error(
-      `Não foi possível preparar o envio da obra: ${signedUploadError.message}`,
-    );
-  }
+  const coverPath =
+    canStoreCover && coverPreview ? `${userId}/${bookId}-cover.jpg` : null;
+  const uploadedPaths = [filePath];
 
   try {
-    await uploadFileWithProgress(signedUpload.signedUrl, file, onProgress);
+    await uploadStorageFile(
+      client,
+      filePath,
+      file,
+      file.name,
+      (progress) =>
+        onProgress(Math.round((progress * file.size) / totalSize)),
+    );
   } catch (uploadError) {
+    const cleanupError = await removeUploadedFiles(client, uploadedPaths);
     throw new Error(
       `Não foi possível enviar a obra: ${
         uploadError instanceof Error
           ? uploadError.message
           : "Ocorreu um erro inesperado."
+      }${
+        cleanupError
+          ? ` Também não foi possível limpar os arquivos enviados: ${cleanupError}`
+          : ""
       }`,
       { cause: uploadError },
     );
+  }
+
+  let savedCoverPath: string | null = null;
+  if (coverPath && coverPreview) {
+    try {
+      await uploadStorageFile(
+        client,
+        coverPath,
+        coverPreview,
+        `${bookId}-cover.jpg`,
+        (progress) =>
+          onProgress(
+            Math.round(
+              (file.size + (progress * coverPreview.size) / 100) /
+                totalSize *
+                100,
+            ),
+          ),
+      );
+      savedCoverPath = coverPath;
+      uploadedPaths.push(coverPath);
+    } catch (coverUploadError) {
+      const cleanupError = await removeUploadedFiles(client, [coverPath]);
+      if (cleanupError) {
+        const fileCleanupError = await removeUploadedFiles(client, [filePath]);
+        throw new Error(
+          `Não foi possível salvar a capa (${coverUploadError instanceof Error ? coverUploadError.message : "erro inesperado"}) nem limpar o arquivo parcial (${cleanupError}).${
+            fileCleanupError ? ` Também não foi possível limpar a obra: ${fileCleanupError}` : ""
+          }`,
+          { cause: coverUploadError },
+        );
+      }
+      onProgress(100);
+    }
+  } else {
+    onProgress(100);
   }
 
   const { data: book, error: insertError } = await client
@@ -170,6 +287,7 @@ export async function uploadBook(
       title: title.trim(),
       author: author.trim(),
       file_path: filePath,
+      cover_url: savedCoverPath,
       file_type: fileType,
       file_size: file.size,
     })
@@ -177,33 +295,34 @@ export async function uploadBook(
     .single();
 
   if (insertError) {
-    const { error: cleanupError } = await client.storage
-      .from(BOOKS_BUCKET)
-      .remove([filePath]);
+    const cleanupError = await removeUploadedFiles(client, uploadedPaths);
     if (cleanupError) {
       throw new Error(
-        `Não foi possível salvar a obra (${insertError.message}) nem remover o arquivo enviado (${cleanupError.message}).`,
+        `Não foi possível salvar a obra (${insertError.message}) nem remover os arquivos enviados (${cleanupError}).`,
       );
     }
     throw new Error(`Não foi possível salvar a obra: ${insertError.message}`);
   }
 
+  const storedSize = file.size + (savedCoverPath && coverPreview ? coverPreview.size : 0);
   const { error: storageError } = await client
     .from("user_storage")
-    .update({ used_bytes: storage.used_bytes + file.size })
+    .update({ used_bytes: storage.used_bytes + storedSize })
     .eq("user_id", userId)
     .select("user_id")
     .single();
 
   if (storageError) {
-    const [deleteBookResult, deleteFileResult] = await Promise.all([
+    const [deleteBookResult, cleanupError] = await Promise.all([
       client.from("books").delete().eq("id", book.id),
-      client.storage.from(BOOKS_BUCKET).remove([filePath]),
+      removeUploadedFiles(client, uploadedPaths),
     ]);
 
-    if (deleteBookResult.error || deleteFileResult.error) {
+    if (deleteBookResult.error || cleanupError) {
       throw new Error(
-        `A obra foi enviada, mas não foi possível atualizar o armazenamento: ${storageError.message}`,
+        `A obra foi enviada, mas houve falhas ao atualizar o armazenamento ou desfazer o envio: ${storageError.message}${
+          deleteBookResult.error ? `; ${deleteBookResult.error.message}` : ""
+        }${cleanupError ? `; ${cleanupError}` : ""}`,
       );
     }
     throw new Error(`Não foi possível atualizar o armazenamento: ${storageError.message}`);

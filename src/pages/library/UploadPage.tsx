@@ -93,20 +93,33 @@ export default function UploadPage() {
     setUploading(true);
 
     let generatedCoverUrl: string | null = null;
+    let coverPreview: Blob | undefined;
     let coverUnavailable = false;
 
     try {
       try {
         const cover = await createBookCoverPreview(file);
+        coverPreview = cover;
         generatedCoverUrl = URL.createObjectURL(cover);
       } catch {
         coverUnavailable = true;
       }
 
       setUploadStage("Enviando arquivo...");
-      await uploadBook(user.id, file, title, author, setUploadProgress);
-      setCoverUrl(generatedCoverUrl);
-      generatedCoverUrl = null;
+      const uploadedBook = await uploadBook(
+        user.id,
+        file,
+        title,
+        author,
+        setUploadProgress,
+        coverPreview,
+      );
+      if (uploadedBook.cover_url && generatedCoverUrl) {
+        setCoverUrl(generatedCoverUrl);
+        generatedCoverUrl = null;
+      } else if (coverPreview) {
+        coverUnavailable = true;
+      }
       setResult({
         type: "success",
         message: `${title.trim()} foi adicionada à sua biblioteca.`,
