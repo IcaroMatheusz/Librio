@@ -8,6 +8,7 @@ import Login from "./pages/LoginPage";
 import Register from "./pages/RegisterPage";
 import Dashboard from "./pages/DashboardPage";
 import Profile from "./pages/ProfilePage";
+import ErrorScreen from "./pages/error/ErrorScreen";
 
 const DashboardPage = Dashboard as unknown as ComponentType<any>;
 const ProfilePage = Profile as unknown as ComponentType<any>;
@@ -26,6 +27,7 @@ export default function App() {
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/profile" element={<ProfilePage />} />
             </Route>
+            <Route path="*" element={<ErrorScreen />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>
