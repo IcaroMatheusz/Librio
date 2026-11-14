@@ -138,7 +138,10 @@ async function extractCbr(
   return sortPages(pages);
 }
 
-async function extractFirstCbzPage(archive: Blob): Promise<ArchivePage> {
+async function extractFirstCbzPage(
+  archive: Blob,
+  onProgress?: ArchiveProgress,
+): Promise<ArchivePage> {
   const reader = new ZipReader(new BlobReader(archive));
 
   try {
@@ -161,14 +164,22 @@ async function extractFirstCbzPage(archive: Blob): Promise<ArchivePage> {
 
     return {
       name: firstImage.filename,
-      blob: await firstImage.getData(new BlobWriter()),
+      blob: await firstImage.getData(new BlobWriter(), {
+        onprogress: (completed, total) => {
+          onProgress?.(completed, total);
+        },
+      }),
     };
   } finally {
     await reader.close();
   }
 }
 
-async function extractFirstCbrPage(archive: Blob): Promise<ArchivePage> {
+async function extractFirstCbrPage(
+  archive: Blob,
+  onProgress?: ArchiveProgress,
+): Promise<ArchivePage> {
+  onProgress?.(0, 1);
   const [{ createExtractorFromData }, wasmResponse] = await Promise.all([
     import("node-unrar-js/esm/index.esm.js"),
     fetch(unrarWasmUrl),
@@ -205,6 +216,7 @@ async function extractFirstCbrPage(archive: Blob): Promise<ArchivePage> {
 
   const imageBytes = new Uint8Array(extractedCover.extraction.length);
   imageBytes.set(extractedCover.extraction);
+  onProgress?.(1, 1);
   return {
     name: extractedCover.fileHeader.name,
     blob: new Blob([imageBytes], {
@@ -216,9 +228,10 @@ async function extractFirstCbrPage(archive: Blob): Promise<ArchivePage> {
 export async function extractFirstComicPage(
   fileType: string,
   archive: Blob,
+  onProgress?: ArchiveProgress,
 ): Promise<ArchivePage> {
-  if (fileType === "CBZ") return extractFirstCbzPage(archive);
-  if (fileType === "CBR") return extractFirstCbrPage(archive);
+  if (fileType === "CBZ") return extractFirstCbzPage(archive, onProgress);
+  if (fileType === "CBR") return extractFirstCbrPage(archive, onProgress);
   throw new Error("Este formato não é um arquivo de quadrinhos compatível.");
 }
 

@@ -24,6 +24,7 @@ import { uploadBook } from "../../services/booksService";
 import {
   createBookCoverPreview,
   prepareManualBookCover,
+  type CoverPreviewProgress,
 } from "../../services/coverPreviewService";
 
 const inputClass =
@@ -35,6 +36,7 @@ interface UploadResult {
   type: "success" | "error";
   message: string;
   coverUnavailable?: boolean;
+  coverError?: string;
 }
 
 export default function UploadPage() {
@@ -47,6 +49,10 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStage, setUploadStage] = useState("");
+  const [coverPreparation, setCoverPreparation] = useState<{
+    percent: number | null;
+    stage: string;
+  } | null>(null);
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [manualCoverFile, setManualCoverFile] = useState<File | null>(null);
   const [manualCoverUrl, setManualCoverUrl] = useState<string | null>(null);
@@ -64,6 +70,7 @@ export default function UploadPage() {
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0] ?? null;
     setResult(null);
+    setCoverPreparation(null);
     setCoverUrl(null);
     setFile(null);
     setManualCoverFile(null);
@@ -96,6 +103,7 @@ export default function UploadPage() {
   function handleManualCoverChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedCover = event.target.files?.[0] ?? null;
     setResult(null);
+    setCoverPreparation(null);
     setManualCoverFile(null);
     setManualCoverUrl(null);
     if (!selectedCover) return;
@@ -138,21 +146,47 @@ export default function UploadPage() {
     let generatedCoverUrl: string | null = null;
     let coverPreview: Blob | undefined;
     let coverUnavailable = false;
+    let coverError: string | undefined;
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    const canGenerateCover = ["pdf", "cbr", "cbz"].includes(extension ?? "");
+    const onCoverProgress: CoverPreviewProgress = (percent, stage) => {
+      setCoverPreparation({ percent, stage });
+    };
 
     try {
       if (manualCoverFile) {
-        coverPreview = await prepareManualBookCover(manualCoverFile);
+        setCoverPreparation({
+          percent: 5,
+          stage: "Preparando a capa escolhida...",
+        });
+        coverPreview = await prepareManualBookCover(
+          manualCoverFile,
+          onCoverProgress,
+        );
         generatedCoverUrl = URL.createObjectURL(coverPreview);
-      } else {
+      } else if (canGenerateCover) {
+        setCoverPreparation({
+          percent: 5,
+          stage: "Lendo a primeira página para gerar a capa...",
+        });
         try {
-          const cover = await createBookCoverPreview(file);
+          const cover = await createBookCoverPreview(file, onCoverProgress);
           coverPreview = cover;
           generatedCoverUrl = URL.createObjectURL(cover);
-        } catch {
+        } catch (caughtError) {
           coverUnavailable = true;
+          coverError =
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Ocorreu um erro desconhecido ao gerar a capa.";
         }
+      } else {
+        coverUnavailable = true;
+        coverError =
+          "A geração automática da prévia ainda não é compatível com EPUB.";
       }
 
+      setCoverPreparation(null);
       setUploadStage("Enviando arquivo...");
       const uploadedBook = await uploadBook(
         user.id,
@@ -167,11 +201,13 @@ export default function UploadPage() {
         generatedCoverUrl = null;
       } else if (coverPreview) {
         coverUnavailable = true;
+        coverError ??= "A capa não foi salva junto com a obra.";
       }
       setResult({
         type: "success",
         message: `${title.trim()} foi adicionada à sua biblioteca.`,
         coverUnavailable,
+        coverError,
       });
     } catch (caughtError) {
       setResult({
@@ -183,6 +219,7 @@ export default function UploadPage() {
       });
     } finally {
       if (generatedCoverUrl) URL.revokeObjectURL(generatedCoverUrl);
+      setCoverPreparation(null);
       setUploading(false);
       setUploadStage("");
     }
@@ -447,11 +484,19 @@ export default function UploadPage() {
           </aside>
         </div>
       </div>
+      {coverPreparation && (
+        <UploadResultModal
+          type="progress"
+          message="Estamos preparando a capa antes de enviar sua obra."
+          progress={coverPreparation}
+        />
+      )}
       {result && (
         <UploadResultModal
           type={result.type}
           message={result.message}
           coverUrl={result.type === "success" ? coverUrl : null}
+          coverError={result.coverError}
           coverUnavailable={
             result.type === "success" && result.coverUnavailable
           }

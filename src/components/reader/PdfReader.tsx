@@ -16,7 +16,7 @@ import {
   Minus,
   Plus,
 } from "lucide-react";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 import { ReaderLoading } from "./ReaderLoading";
@@ -28,6 +28,9 @@ interface PdfReaderProps {
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+const PDF_CANVAS_MAX_AREA_IN_BYTES = 16 * 1024 * 1024;
+const MAX_CANVAS_PIXELS = 8_000_000;
+const MAX_DEVICE_PIXEL_RATIO = 1.5;
 
 export function PdfReader({
   file,
@@ -50,6 +53,9 @@ export function PdfReader({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [isDocumentVisible, setIsDocumentVisible] = useState(
+    () => document.visibilityState === "visible",
+  );
 
   useEffect(() => {
     let active = true;
@@ -63,6 +69,7 @@ export function PdfReader({
         loadingTask = pdfjs.getDocument({
           data: await file.arrayBuffer(),
           wasmUrl: `${import.meta.env.BASE_URL}pdfjs/`,
+          canvasMaxAreaInBytes: PDF_CANVAS_MAX_AREA_IN_BYTES,
         });
         const loadedDocument = await loadingTask.promise;
         if (!active) return;
@@ -101,17 +108,28 @@ export function PdfReader({
   }, [file, initialProgress]);
 
   useEffect(() => {
+    function handleVisibilityChange() {
+      setIsDocumentVisible(document.visibilityState === "visible");
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!pdfDocument || !canvas) return;
+    if (!pdfDocument || !canvas || !isDocumentVisible) return;
     const activeDocument = pdfDocument;
     const activeCanvas = canvas;
 
     let cancelled = false;
     let renderTask: import("pdfjs-dist").RenderTask | null = null;
+    let page: PDFPageProxy | null = null;
 
     async function renderPage() {
       try {
-        const page = await activeDocument.getPage(pageNumber);
+        page = await activeDocument.getPage(pageNumber);
         if (cancelled) return;
 
         const baseViewport = page.getViewport({ scale: 1 });
@@ -128,7 +146,13 @@ export function PdfReader({
           availableHeight / baseViewport.height,
         );
         const viewport = page.getViewport({ scale: fitScale * zoom });
-        const pixelRatio = window.devicePixelRatio || 1;
+        const pixelRatio = Math.min(
+          window.devicePixelRatio || 1,
+          MAX_DEVICE_PIXEL_RATIO,
+          Math.sqrt(
+            MAX_CANVAS_PIXELS / (viewport.width * viewport.height),
+          ),
+        );
         const context = activeCanvas.getContext("2d");
         if (!context) throw new Error("Não foi possível desenhar a página.");
 
@@ -155,6 +179,8 @@ export function PdfReader({
               : "Não foi possível renderizar esta página.",
           );
         }
+      } finally {
+        page?.cleanup();
       }
     }
 
@@ -162,10 +188,13 @@ export function PdfReader({
     return () => {
       cancelled = true;
       renderTask?.cancel();
+      activeCanvas.width = 0;
+      activeCanvas.height = 0;
     };
   }, [
     containerSize.height,
     containerSize.width,
+    isDocumentVisible,
     pageNumber,
     pdfDocument,
     zoom,
