@@ -1,6 +1,7 @@
-
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff, BookOpen } from "lucide-react";
+import { Link } from "react-router";
+import { useNavigate } from "react-router-dom";
 
 type Credentials = {
   username: string;
@@ -10,12 +11,18 @@ type Credentials = {
 type LoginScreenProps = {
   backgroundImage?: string;
   mobileBackgroundImage?: string;
-  onSubmit?: (
-    credentials: Credentials
-  ) => Promise<void> | void;
+  onSubmit?: (credentials: Credentials) => Promise<void> | void;
 };
 
+const PHRASES = [
+  "Seus livros.",
+  "Seus quadrinhos.",
+  "Seus mangás.",
+  "Suas histórias.",
+];
+
 export default function LoginScreen({
+  // Dica: baixe as imagens para public/images/ e use caminhos locais
   backgroundImage = "https://wallpapers.com/images/featured/bakuman-b3xo0h0nws14tkcn.jpg",
   mobileBackgroundImage = "https://i.pinimg.com/1200x/bd/96/9e/bd969e7a3a7552a5740a73386f261c4a.jpg",
   onSubmit,
@@ -25,6 +32,18 @@ export default function LoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [phraseIndex, setPhraseIndex] = useState(0);
+
+  // Troca a frase do painel desktop a cada 3s (parado se o usuário pediu menos movimento)
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const id = setInterval(() => {
+      setPhraseIndex((i) => (i + 1) % PHRASES.length);
+    }, 3000);
+
+    return () => clearInterval(id);
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -93,6 +112,25 @@ export default function LoginScreen({
           to-[#2F3447]/95
         "/>
 
+        {/* BRILHOS DESKTOP (luz de palco atrás do card) */}
+        <div
+          aria-hidden
+          className="
+            pointer-events-none absolute -z-10 hidden lg:block
+            left-[6%] top-[10%] h-72 w-72 rounded-full
+            bg-indigo-500/25 blur-3xl anim-glow
+          "
+        />
+        <div
+          aria-hidden
+          className="
+            pointer-events-none absolute -z-10 hidden lg:block
+            bottom-[6%] right-[4%] h-80 w-80 rounded-full
+            bg-purple-500/20 blur-3xl anim-glow
+          "
+          style={{ animationDelay: "-3s" }}
+        />
+
         {/* LOGO MOBILE */}
         <div className="
           relative z-10 mb-8 flex items-center
@@ -113,9 +151,11 @@ export default function LoginScreen({
 
         {/* CARD DE LOGIN */}
         <div className="
-          relative z-10 w-full max-w-md
-          rounded-[28px] border border-white/40
-          bg-[#F4F4F5] p-6 shadow-2xl
+          anim-fade-up relative z-10 w-full max-w-md
+          rounded-[28px] border border-white/60
+          bg-gradient-to-br from-[#FAF8FF] to-[#E9E1F5]
+          p-6 ring-1 ring-black/5
+          shadow-[0_30px_70px_-15px_rgba(10,8,25,0.65)]
           sm:p-10 lg:p-11
         ">
 
@@ -214,7 +254,6 @@ export default function LoginScreen({
             {error && (
               <p
                 role="alert"
-                aria-live="polite"
                 className="
                   rounded-xl border border-red-200
                   bg-red-50 px-4 py-3
@@ -250,14 +289,14 @@ export default function LoginScreen({
 
           {/* CADASTRO */}
           <div className="
-            mt-8 border-t border-neutral-200
+            mt-8 border-t border-[#2F3447]/10
             pt-6 text-center
           ">
             <p className="text-sm text-neutral-600">
               Ainda não tem uma conta?{" "}
 
-              <a
-                href="/register"
+              <Link
+                to="/register"
                 className="
                   font-bold text-[#2F3447]
                   underline underline-offset-4
@@ -265,7 +304,7 @@ export default function LoginScreen({
                 "
               >
                 Cadastre-se
-              </a>
+              </Link>
             </p>
           </div>
 
@@ -282,15 +321,15 @@ export default function LoginScreen({
       </section>
 
       {/* PAINEL DESKTOP */}
-      <aside
-        className="
-          relative hidden overflow-hidden
-          bg-cover bg-center lg:flex
-        "
-        style={{
-          backgroundImage: `url("${backgroundImage}")`,
-        }}
-      >
+      <aside className="relative hidden overflow-hidden lg:flex">
+
+        {/* IMAGEM COM ZOOM LENTO (div própria: só a imagem se move) */}
+        <div
+          className="absolute inset-0 bg-cover bg-center anim-kenburns"
+          style={{
+            backgroundImage: `url("${backgroundImage}")`,
+          }}
+        />
 
         {/* OVERLAY DESKTOP */}
         <div className="
@@ -308,34 +347,63 @@ export default function LoginScreen({
           xl:p-20
         ">
 
-          <div className="
-            mb-5 flex h-16 w-16 items-center
-            justify-center rounded-2xl
-            border border-white/20
-            bg-white/10 backdrop-blur-md
-          ">
-            <BookOpen size={34} />
+          {/* ÍCONE FLUTUANTE */}
+          <div className="anim-fade-up" style={{ animationDelay: "150ms" }}>
+            <div className="relative mb-5 w-fit anim-float">
+              <div
+                aria-hidden
+                className="absolute -inset-5 rounded-full bg-indigo-400/40 blur-2xl anim-glow"
+              />
+              <div className="
+                relative flex h-16 w-16 items-center
+                justify-center rounded-2xl
+                border border-white/20
+                bg-white/10 backdrop-blur-md
+              ">
+                <BookOpen size={34} />
+              </div>
+            </div>
           </div>
 
-          <h2 className="
-            max-w-xl text-6xl font-extrabold
-            tracking-tight xl:text-7xl
-          ">
+          <h2
+            className="
+              anim-fade-up max-w-xl text-6xl font-extrabold
+              tracking-tight xl:text-7xl
+            "
+            style={{ animationDelay: "300ms" }}
+          >
             Librio<span className="text-indigo-300">.</span>
           </h2>
 
-          <p className="
-            mt-4 max-w-md text-lg leading-relaxed
-            text-white/85 xl:text-xl
-          ">
-            Seus livros, seus quadrinhos,
-            suas histórias. Tudo em um só lugar.
-          </p>
+          {/* FRASE ROTATIVA */}
+          <div
+            className="anim-fade-up mt-4 max-w-md"
+            style={{ animationDelay: "450ms" }}
+          >
+            {/* Versão estática para leitores de tela */}
+            <p className="sr-only">
+              Seus livros, seus quadrinhos, suas histórias. Tudo em um só lugar.
+            </p>
 
-          <div className="
-            mt-10 h-1 w-20 rounded-full
-            bg-indigo-300
-          "/>
+            <p aria-hidden className="text-3xl font-bold leading-snug xl:text-4xl">
+              {/* key muda -> React recria o span -> animação reinicia */}
+              <span
+                key={PHRASES[phraseIndex]}
+                className="anim-word inline-block text-indigo-300"
+              >
+                {PHRASES[phraseIndex]}
+              </span>
+            </p>
+
+            <p aria-hidden className="mt-1 text-lg text-white/85 xl:text-xl">
+              Tudo em um só lugar.
+            </p>
+          </div>
+
+          <div
+            className="anim-bar mt-10 h-1 w-20 rounded-full bg-indigo-300"
+            style={{ animationDelay: "700ms" }}
+          />
 
         </div>
       </aside>

@@ -5,6 +5,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 import Login from "./pages/LoginPage";
+import Register from "./pages/RegisterPage";
 import Dashboard from "./pages/DashboardPage";
 import Profile from "./pages/ProfilePage";
 
@@ -19,7 +20,7 @@ export default function App() {
           <Routes>
             {/* Rotas públicas */}
             <Route path="/" element={<Login />} />
-
+            <Route path="/register" element={<Register />} />
             {/* Rotas protegidas */}
             <Route element={<ProtectedRoute />}>
               <Route path="/dashboard" element={<DashboardPage />} />
