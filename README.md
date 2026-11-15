@@ -1,52 +1,229 @@
 # Librio
 
-Librio is a React, TypeScript, and Vite application with a desktop version
-powered by Electron.
+Biblioteca digital para organizar e ler livros, quadrinhos e mangás. O Librio
+tem uma aplicação web e uma versão desktop para Windows, construída com
+Electron.
 
-## Development
+## Funcionalidades
 
-- `npm run dev` starts the web application.
-- `npm run electron:dev` starts the desktop application with Vite.
-- `npm run build` builds the web application.
-- `npm run electron:dist` builds the desktop app and creates a platform installer.
+- Cadastro, login e perfil de usuário.
+- Biblioteca na nuvem para arquivos PDF, EPUB, CBR e CBZ.
+- Leitura de PDFs, EPUBs e quadrinhos, com salvamento do progresso.
+- Capas geradas a partir do arquivo ou selecionadas pelo usuário.
+- Organização de PDFs em volumes.
+- Autor opcional no envio e editável pelo menu de contexto do card na biblioteca.
+- Aplicativo desktop com biblioteca local: os arquivos continuam nos locais
+  originais do computador e não são enviados à nuvem.
+- Capas e progresso de leitura das obras locais.
+- Atualizações automáticas do desktop a partir das releases do GitHub.
 
-The desktop app uses the same React interface while keeping Electron's Node.js
-access in its main process. The renderer receives only a restricted preload API.
-Pushing a `v*` tag publishes a Windows installer to GitHub Releases. Packaged
-desktop installations check for releases at startup, download new versions in
-the background, and prompt to restart to install them.
+## Tecnologias
 
-## Local library and reading progress
+- React, TypeScript, Vite e Tailwind CSS.
+- Supabase Auth, Database e Storage.
+- Electron e electron-builder.
+- PDF.js, `@zip.js/zip.js` e `node-unrar-js`.
 
-Local books are references to files in their original locations. Librio stores
-the catalog and file paths on the computer; removing an entry from the app does
-not delete its original file. Moving a file makes its entry unavailable until
-it is added again.
-PDF and comic-book covers are generated locally and stored on the computer;
-local book covers can also be replaced with an image file from the computer.
+## Requisitos
 
-Local file contents, paths, and cover images are never uploaded. Supabase stores
-only the authenticated user's opaque local book ID, reading progress, and
-last-read timestamp in `local_reading_progress`. Apply the SQL migration in
-`supabase/migrations` before enabling local reading progress.
+- Node.js 24 e npm.
+- Uma instância Supabase configurada para o Librio.
+- Acesso ao repositório GitHub `IcaroMatheusz/Librio` para publicar releases.
 
-The web library continues to show cloud books only. Local books are listed and
-opened only by the desktop app.
+## Configuração local
 
-To upload CBR comics to Supabase, apply
-`supabase/migrations/20261115003000_allow_cbr_storage_mime_type.sql`. It adds
-`application/vnd.comicbook-rar` to the existing MIME allowlist of the `books`
-bucket without changing the other allowed types.
+1. Clone o repositório e entre na pasta:
 
-To upload CBZ comics, also apply
-`supabase/migrations/20261115003100_allow_cbz_storage_mime_type.sql`. It adds
-`application/vnd.comicbook+zip` to the same allowlist.
+   ```powershell
+   git clone https://github.com/IcaroMatheusz/Librio.git
+   cd Librio
+   ```
 
-If uploads fail with the `books_file_type_valid` constraint, apply
-`supabase/migrations/20261115003300_allow_comic_file_types.sql` to allow CBR
-and CBZ alongside PDF and EPUB.
+2. Instale as dependências:
 
-The upload form accepts files up to 100 MB. Apply
-`supabase/migrations/20261115003200_increase_books_bucket_file_size_limit.sql`
-to set the `books` bucket limit to 100 MB as well. The Supabase project-wide
-upload limit must also allow files of that size.
+   ```powershell
+   npm ci
+   ```
+
+3. Crie um arquivo `.env` na raiz do projeto:
+
+   ```dotenv
+   VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co
+   VITE_SUPABASE_ANON_KEY=SUA_CHAVE_ANON
+   ```
+
+   Use os valores do projeto Supabase. A chave `anon` é destinada ao cliente;
+   nunca coloque uma chave `service_role` em variáveis `VITE_*` ou no código
+   enviado ao navegador. O arquivo `.env` não deve ser commitado.
+
+4. Configure no Supabase as tabelas, políticas de acesso (RLS) e buckets usados
+   pelo projeto. O modelo TypeScript em [`src/types/database.ts`](./src/types/database.ts)
+   descreve as tabelas esperadas, incluindo `profiles`, `books`,
+   `reading_progress`, `local_reading_progress`, `user_storage`,
+   `book_volumes`, `volume_chapters` e `volume_reading_progress`.
+   O repositório não inclui scripts para criar esse schema ou as políticas;
+   eles precisam ser provisionados no seu projeto Supabase.
+
+5. Inicie a aplicação web:
+
+   ```powershell
+   npm run dev
+   ```
+
+   Para abrir a versão desktop em modo de desenvolvimento:
+
+   ```powershell
+   npm run electron:dev
+   ```
+
+### Supabase Storage
+
+O projeto usa os buckets `books` e `coverarts`. O formulário aceita arquivos
+de até 100 MB, portanto o limite do bucket `books` e o limite global de upload
+do projeto Supabase também precisam permitir esse tamanho.
+
+Configure os MIME types usados pelos arquivos:
+
+| Formato | MIME type |
+| --- | --- |
+| PDF | `application/pdf` |
+| EPUB | `application/epub+zip` |
+| CBR | `application/vnd.comicbook-rar` |
+| CBZ | `application/vnd.comicbook+zip` |
+
+As capas são enviadas como JPEG ao bucket `coverarts`. Ajuste as políticas de
+Storage e RLS para permitir que cada usuário acesse somente os próprios dados e
+arquivos.
+
+Na versão desktop, o catálogo local e as capas ficam no diretório de dados do
+aplicativo. Os arquivos originais permanecem onde estavam quando foram
+adicionados; remover uma obra local do Librio não apaga o arquivo original.
+
+## Comandos
+
+| Comando | Descrição |
+| --- | --- |
+| `npm run dev` | Inicia o servidor de desenvolvimento web. |
+| `npm run build` | Executa a verificação TypeScript e cria o build web em `dist/`. |
+| `npm run preview` | Serve localmente o build web. |
+| `npm run lint` | Executa o ESLint. |
+| `npm run electron:compile` | Compila os arquivos do processo principal e preload do Electron. |
+| `npm run electron:dev` | Inicia a aplicação Electron apontando para o Vite. |
+| `npm run electron:dist` | Cria os instaladores desktop para a plataforma atual. |
+
+## Criar o instalador Windows localmente
+
+Para testar ou gerar o `.exe` sem publicar uma release:
+
+1. Atualize a versão do projeto. Use uma versão maior que a release anterior:
+
+   ```powershell
+   npm version 0.1.0 --no-git-tag-version
+   ```
+
+   Troque `0.1.0` pela versão que deseja gerar. Esse comando atualiza a versão
+   em `package.json` e `package-lock.json`, sem criar uma tag Git.
+
+2. Instale dependências e crie o instalador:
+
+   ```powershell
+   npm ci
+   npm run electron:dist -- --win --publish never
+   ```
+
+3. Procure os arquivos gerados na pasta `release/`. O instalador terá um nome
+   parecido com `Librio Setup 0.1.0.exe`. O electron-builder também pode gerar
+   arquivos auxiliares, como `.blockmap` e `latest.yml`.
+
+Esse build local **não publica** nada no GitHub. Para que a atualização
+automática funcione, publique uma release contendo os metadados de atualização
+e os artefatos correspondentes. O fluxo recomendado abaixo faz o build e a
+publicação automaticamente.
+
+## Publicar uma release no GitHub
+
+O repositório já tem o workflow
+[`desktop-release.yml`](./.github/workflows/desktop-release.yml). Ao receber
+uma tag começando com `v`, ele compila o instalador para Windows e publica os
+artefatos em GitHub Releases. O token `GITHUB_TOKEN` é fornecido pelo GitHub
+Actions; não é necessário criar ou salvar um token pessoal.
+
+Confirme também que o GitHub Actions está habilitado no repositório e que sua
+conta tem permissão para enviar commits e tags. O workflow solicita a
+permissão `contents: write` para publicar os artefatos.
+
+### Primeira publicação
+
+1. Faça e teste as alterações que devem entrar na release. Antes de publicar,
+   rode:
+
+   ```powershell
+   npm run build
+   npm run electron:compile
+   npm run lint
+   ```
+
+2. Atualize a versão e grave essa alteração no branch principal. Exemplo para
+   a primeira versão `0.1.0`:
+
+   ```powershell
+   npm version 0.1.0 --no-git-tag-version
+   git add package.json package-lock.json
+   git commit -m "chore: prepare release v0.1.0"
+   ```
+
+   Se ainda houver outras alterações a publicar, inclua-as nos commits antes
+   de criar a tag.
+
+3. Envie o branch e crie/envie a tag que dispara o workflow:
+
+   ```powershell
+   git push origin main
+   git tag -a v0.1.0 -m "Librio v0.1.0"
+   git push origin v0.1.0
+   ```
+
+   A tag deve apontar para o commit que contém o código e a versão dessa
+   release. Substitua `main` se o branch principal do repositório tiver outro
+   nome.
+
+4. No GitHub, abra **Actions** e acompanhe o workflow **Publish desktop
+   release**. Quando terminar, confira a release em
+   <https://github.com/IcaroMatheusz/Librio/releases>.
+
+5. A release deve incluir o instalador `Librio Setup 0.1.0.exe` e os arquivos
+   de atualização gerados pelo electron-builder, como `latest.yml` e o
+   `.blockmap`. Não remova esses arquivos: o `electron-updater` precisa dos
+   metadados para encontrar e baixar as versões seguintes.
+
+Se o workflow falhar, abra a execução em **Actions**, localize o primeiro passo
+com erro, corrija-o e publique uma nova versão com uma nova tag. Tags já
+publicadas não devem ser reutilizadas para conteúdo diferente.
+
+### Publicar versões seguintes
+
+Repita os passos acima usando uma versão maior, por exemplo `0.1.1` ou `0.2.0`,
+e uma nova tag (`v0.1.1` ou `v0.2.0`). Evite sobrescrever ou reutilizar tags de
+releases existentes.
+
+### Disponibilizar o download no site
+
+A página de downloads consulta a release mais recente no GitHub. Quando
+encontra um instalador Windows `.exe` com `Setup` no nome, exibe um botão para
+baixá-lo. Se ainda não houver uma release publicada, a página direciona para
+a área de releases do GitHub.
+
+## Atualizações automáticas
+
+Versões instaladas pelo instalador publicado verificam novas releases quando o
+Librio Desktop inicia. Quando uma atualização está disponível, ela é baixada
+em segundo plano e o aplicativo oferece reiniciar para instalá-la. Fechar o
+aviso instala a atualização na próxima vez que o aplicativo for encerrado.
+
+As atualizações não são executadas em modo de desenvolvimento. Distribua o
+instalador criado e publicado pelo fluxo de release; executar o aplicativo
+diretamente do código-fonte não instala atualizações.
+
+O workflow atual publica o instalador **Windows**. Embora o electron-builder
+tenha configuração para macOS e Linux, essas plataformas ainda não são
+compiladas por esse workflow.
