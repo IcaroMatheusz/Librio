@@ -9,7 +9,8 @@
     "plugins": [
       "expo-router",
       "expo-document-picker",
-      "expo-font"
+      "expo-font",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true
