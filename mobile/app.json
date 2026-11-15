@@ -6,9 +6,19 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "plugins": ["expo-router", "expo-document-picker"],
-    "experiments": { "typedRoutes": true },
-    "android": { "package": "com.librio.mobile" },
-    "ios": { "bundleIdentifier": "com.librio.mobile" }
+    "plugins": [
+      "expo-router",
+      "expo-document-picker",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "android": {
+      "package": "com.librio.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.librio.mobile"
+    }
   }
 }
