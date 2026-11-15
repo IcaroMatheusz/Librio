@@ -47,7 +47,7 @@ export default function UploadPage() {
   const [author, setAuthor] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStage, setUploadStage] = useState("");
   const [coverPreparation, setCoverPreparation] = useState<{
     percent: number | null;
@@ -128,14 +128,31 @@ export default function UploadPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!user || !file) {
-      setResult({ type: "error", message: "Escolha um arquivo antes de enviar." });
+    if (!user) {
+      setResult({
+        type: "error",
+        message: "Sua sessão expirou. Entre novamente antes de enviar a obra.",
+      });
+      return;
+    }
+    if (!file) {
+      setResult({
+        type: "error",
+        message: "Escolha um arquivo antes de enviar.",
+      });
+      return;
+    }
+    if (!title.trim()) {
+      setResult({
+        type: "error",
+        message: "Informe um título para a obra antes de enviar.",
+      });
       return;
     }
 
     setResult(null);
     setCoverUrl(null);
-    setUploadProgress(0);
+    setUploadProgress(null);
     setUploadStage(
       manualCoverFile
         ? "Preparando a capa escolhida..."
@@ -271,7 +288,11 @@ export default function UploadPage() {
                 Os campos marcados são necessários para salvar na biblioteca.
               </p>
             </header>
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form
+              noValidate
+              onSubmit={handleSubmit}
+              className="space-y-5"
+            >
               <div>
                 <label
                   htmlFor="book-file"
@@ -370,20 +391,35 @@ export default function UploadPage() {
                       {uploadStage}
                     </p>
                     <p className="tabular-nums text-violet-200">
-                      {uploadProgress}%
+                      {uploadProgress === null
+                        ? "Aguardando envio…"
+                        : `${uploadProgress}%`}
                     </p>
                   </div>
                   <div
                     role="progressbar"
                     aria-label="Progresso do envio do arquivo"
-                    aria-valuenow={uploadProgress}
+                    aria-valuenow={uploadProgress ?? undefined}
                     aria-valuemin={0}
                     aria-valuemax={100}
+                    aria-valuetext={
+                      uploadProgress === null
+                        ? uploadStage || "Preparando o envio"
+                        : `${uploadProgress}% enviado`
+                    }
                     className="h-2 overflow-hidden rounded-full bg-white/10"
                   >
                     <div
-                      className="h-full rounded-full bg-violet-400 transition-[width] duration-150"
-                      style={{ width: `${uploadProgress}%` }}
+                      className={`h-full rounded-full bg-violet-400 transition-[width] duration-150 ${
+                        uploadProgress === null
+                          ? "w-2/5 animate-pulse"
+                          : ""
+                      }`}
+                      style={
+                        uploadProgress === null
+                          ? undefined
+                          : { width: `${uploadProgress}%` }
+                      }
                     />
                   </div>
                 </section>
@@ -437,7 +473,7 @@ export default function UploadPage() {
                 </Link>
                 <button
                   type="submit"
-                  disabled={uploading || !file}
+                  disabled={uploading}
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-400 px-5 py-3 text-sm font-extrabold text-[#1d1930] shadow-lg shadow-violet-950/20 transition hover:-translate-y-0.5 hover:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white disabled:cursor-wait disabled:opacity-60"
                 >
                   <BookUp aria-hidden="true" size={17} />
