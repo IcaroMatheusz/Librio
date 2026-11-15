@@ -31,6 +31,7 @@ interface ComicReaderProps {
   file: Blob;
   initialProgress: number;
   onProgressChange: (progress: number) => Promise<void>;
+  onEnd?: () => void;
 }
 
 interface DisplayPage extends ArchivePage {
@@ -67,6 +68,7 @@ export function ComicReader({
   file,
   initialProgress,
   onProgressChange,
+  onEnd,
 }: ComicReaderProps) {
   const readerRef = useRef<HTMLElement>(null);
   const verticalViewportRef = useRef<HTMLDivElement>(null);
@@ -158,6 +160,10 @@ export function ComicReader({
 
   const changePage = useCallback(
     (delta: number) => {
+      if (delta > 0 && pageIndex >= pages.length - 1) {
+        onEnd?.();
+        return;
+      }
       const nextIndex = Math.min(
         pages.length - 1,
         Math.max(0, pageIndex + delta),
@@ -174,7 +180,7 @@ export function ComicReader({
         });
       }
     },
-    [pageIndex, pages.length, readingMode],
+    [onEnd, pageIndex, pages.length, readingMode],
   );
 
   useEffect(() => {
@@ -436,7 +442,7 @@ export function ComicReader({
           <button
             type="button"
             onClick={() => changePage(1)}
-            disabled={pageIndex === pages.length - 1}
+            disabled={pageIndex === pages.length - 1 && !onEnd}
             aria-label="Próxima página"
             className={`inline-flex size-10 items-center justify-center rounded-xl transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
               theme === "night"
@@ -575,7 +581,7 @@ export function ComicReader({
         <button
           type="button"
           onClick={() => changePage(1)}
-          disabled={pageIndex === pages.length - 1}
+          disabled={pageIndex === pages.length - 1 && !onEnd}
           aria-label="Próxima página"
           className={`absolute right-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:right-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
             theme === "night"

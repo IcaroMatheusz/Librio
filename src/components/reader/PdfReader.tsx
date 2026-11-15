@@ -33,6 +33,7 @@ interface PdfReaderProps {
   file: Blob;
   initialProgress: number;
   onProgressChange: (progress: number) => Promise<void>;
+  onEnd?: () => void;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -44,6 +45,7 @@ export function PdfReader({
   file,
   initialProgress,
   onProgressChange,
+  onEnd,
 }: PdfReaderProps) {
   const readerRef = useRef<HTMLElement>(null);
   const pageViewportRef = useRef<HTMLDivElement>(null);
@@ -303,8 +305,18 @@ export function PdfReader({
   );
 
   const changePage = useCallback(
-    (delta: number) => navigateToPageNumber(pageNumber + delta),
-    [navigateToPageNumber, pageNumber],
+    (delta: number) => {
+      if (
+        delta > 0 &&
+        pdfDocument &&
+        pageNumber >= pdfDocument.numPages
+      ) {
+        onEnd?.();
+        return;
+      }
+      navigateToPageNumber(pageNumber + delta);
+    },
+    [navigateToPageNumber, onEnd, pageNumber, pdfDocument],
   );
 
   const handleContinuousPageVisible = useCallback((visiblePage: number) => {
@@ -534,7 +546,7 @@ export function PdfReader({
           <button
             type="button"
             onClick={() => changePage(1)}
-            disabled={pageNumber >= pdfDocument.numPages}
+            disabled={pageNumber >= pdfDocument.numPages && !onEnd}
             aria-label="Próxima página"
             className={`inline-flex size-10 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
               theme === "night"
@@ -674,7 +686,7 @@ export function PdfReader({
         <button
           type="button"
           onClick={() => changePage(1)}
-          disabled={pageNumber >= pdfDocument.numPages}
+          disabled={pageNumber >= pdfDocument.numPages && !onEnd}
           aria-label="Próxima página"
           className={`absolute right-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:right-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
             theme === "night"

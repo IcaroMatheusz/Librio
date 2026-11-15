@@ -28,6 +28,14 @@ export interface NewVolumeChapter {
   title: string;
 }
 
+export const VOLUME_SUPPORTED_FILE_TYPES = ["pdf", "cbr", "cbz"] as const;
+
+export function supportsVolumeFileType(fileType: string): boolean {
+  return VOLUME_SUPPORTED_FILE_TYPES.includes(
+    fileType.toLowerCase() as (typeof VOLUME_SUPPORTED_FILE_TYPES)[number],
+  );
+}
+
 const BOOK_FIELDS =
   "id, user_id, title, author, description, cover_url, file_path, file_type, file_size, created_at, updated_at";
 
@@ -139,6 +147,11 @@ export async function getVolumeById(volumeId: string): Promise<BookVolume> {
   if (chapters.length === 0) {
     throw new Error("Este volume não possui capítulos disponíveis.");
   }
+  if (chapters.some(({ book }) => !supportsVolumeFileType(book.file_type))) {
+    throw new Error(
+      "Volumes aceitam PDFs, CBRs e CBZs. EPUBs já possuem capítulos próprios.",
+    );
+  }
   return toBookVolume(volume, chapters);
 }
 
@@ -152,14 +165,14 @@ export async function createVolume(
   if (!normalizedTitle || normalizedTitle.length > 200) {
     throw new Error("Informe um título com até 200 caracteres.");
   }
-  if (!normalizedAuthor || normalizedAuthor.length > 160) {
-    throw new Error("Informe um autor com até 160 caracteres.");
+  if (normalizedAuthor.length > 160) {
+    throw new Error("O nome do autor deve ter no máximo 160 caracteres.");
   }
   if (chapters.length < 2) {
-    throw new Error("Selecione pelo menos dois PDFs para montar um volume.");
+    throw new Error("Selecione pelo menos dois arquivos para montar um volume.");
   }
   if (new Set(chapters.map(({ bookId }) => bookId)).size !== chapters.length) {
-    throw new Error("Um mesmo PDF não pode ser adicionado mais de uma vez.");
+    throw new Error("Um mesmo arquivo não pode ser adicionado mais de uma vez.");
   }
 
   const client = await getSupabaseClient();
@@ -179,15 +192,15 @@ export async function createVolume(
       chapters.map(({ bookId }) => bookId),
     );
   if (sourceError) {
-    throw new Error(`Não foi possível verificar os PDFs escolhidos: ${sourceError.message}`);
+    throw new Error(`Não foi possível verificar os arquivos escolhidos: ${sourceError.message}`);
   }
-  const pdfBookIds = new Set(
+  const supportedBookIds = new Set(
     sourceBooks
-      .filter(({ file_type }) => file_type.toLowerCase() === "pdf")
+      .filter(({ file_type }) => supportsVolumeFileType(file_type))
       .map(({ id }) => id),
   );
-  if (pdfBookIds.size !== chapters.length) {
-    throw new Error("Um ou mais arquivos escolhidos não são PDFs da sua biblioteca.");
+  if (supportedBookIds.size !== chapters.length) {
+    throw new Error("Escolha apenas PDFs, CBRs ou CBZs da sua biblioteca.");
   }
 
   const { data: volume, error: volumeError } = await client
@@ -199,7 +212,17 @@ export async function createVolume(
     })
     .select("id")
     .single();
-  if (volumeError) throw volumeSchemaError(volumeError.message);
+  if (volumeError) {
+    if (
+      volumeError.code === "23514" &&
+      volumeError.message.includes("book_volumes_author_check")
+    ) {
+      throw new Error(
+        "O banco ainda exige um autor para o volume. Aplique a migração supabase/migrations/20261115130000_allow_empty_volume_author.sql no projeto Supabase.",
+      );
+    }
+    throw volumeSchemaError(volumeError.message);
+  }
 
   const { error: chapterError } = await client.from("volume_chapters").insert(
     chapters.map((chapter, index) => ({
@@ -215,8 +238,12 @@ export async function createVolume(
       .from("book_volumes")
       .delete()
       .eq("id", volume.id);
+    const chapterErrorMessage =
+      chapterError.code === "42501" || /row-level security/i.test(chapterError.message)
+        ? "A política de segurança do Supabase bloqueou a inclusão dos capítulos. Aplique a migração supabase/migrations/20261115120000_allow_volume_chapter_insert.sql no projeto Supabase."
+        : chapterError.message;
     throw new Error(
-      `O volume foi criado, mas os capítulos não puderam ser salvos: ${chapterError.message}${
+      `O volume foi criado, mas os capítulos não puderam ser salvos: ${chapterErrorMessage}${
         rollbackError
           ? ` Também não foi possível desfazer o volume: ${rollbackError.message}`
           : ""
@@ -227,6 +254,17 @@ export async function createVolume(
 
 export async function deleteVolume(volumeId: string): Promise<void> {
   const client = await getSupabaseClient();
+  const { count, error: chaptersError } = await client
+    .from("volume_chapters")
+    .select("book_id", { count: "exact", head: true })
+    .eq("volume_id", volumeId);
+  if (chaptersError) throw volumeSchemaError(chaptersError.message);
+  if ((count ?? 0) > 0) {
+    throw new Error(
+      "Exclua primeiro as obras dos capítulos. Depois, você poderá excluir o volume.",
+    );
+  }
+
   const { error } = await client
     .from("book_volumes")
     .delete()
@@ -234,6 +272,27 @@ export async function deleteVolume(volumeId: string): Promise<void> {
     .select("id")
     .single();
   if (error) throw volumeSchemaError(error.message);
+}
+
+export async function updateVolumeAuthor(
+  volumeId: string,
+  author: string,
+): Promise<string> {
+  const normalizedAuthor = author.trim();
+  if (normalizedAuthor.length > 160) {
+    throw new Error("O nome do autor deve ter no máximo 160 caracteres.");
+  }
+
+  const client = await getSupabaseClient();
+  const { data, error } = await client
+    .from("book_volumes")
+    .update({ author: normalizedAuthor })
+    .eq("id", volumeId)
+    .select("author")
+    .single();
+
+  if (error) throw volumeSchemaError(error.message);
+  return data.author;
 }
 
 export async function getVolumeProgress(

@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { getBooks } from "../../services/booksService";
 import {
   createVolume,
+  supportsVolumeFileType,
   type NewVolumeChapter,
 } from "../../services/volumesService";
 import type { Book } from "../../types/database";
@@ -14,7 +15,7 @@ const inputClass =
 
 export default function CreateVolumePage() {
   const navigate = useNavigate();
-  const [pdfBooks, setPdfBooks] = useState<Book[]>([]);
+  const [availableBooks, setAvailableBooks] = useState<Book[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [chapterTitles, setChapterTitles] = useState<Record<string, string>>({});
   const [title, setTitle] = useState("");
@@ -28,7 +29,7 @@ export default function CreateVolumePage() {
     void getBooks()
       .then((books) => {
         if (active) {
-          setPdfBooks(books.filter((book) => book.file_type.toLowerCase() === "pdf"));
+          setAvailableBooks(books.filter((book) => supportsVolumeFileType(book.file_type)));
         }
       })
       .catch((caughtError: unknown) => {
@@ -36,7 +37,7 @@ export default function CreateVolumePage() {
           setError(
             caughtError instanceof Error
               ? caughtError.message
-              : "Não foi possível carregar os PDFs da biblioteca.",
+              : "Não foi possível carregar os arquivos compatíveis da biblioteca.",
           );
         }
       })
@@ -80,7 +81,7 @@ export default function CreateVolumePage() {
     event.preventDefault();
     setError(null);
     if (selectedIds.length < 2) {
-      setError("Selecione pelo menos dois PDFs e organize-os na ordem de leitura.");
+      setError("Selecione pelo menos dois arquivos e organize-os na ordem de leitura.");
       return;
     }
 
@@ -103,7 +104,7 @@ export default function CreateVolumePage() {
     }
   }
 
-  const booksById = new Map(pdfBooks.map((book) => [book.id, book]));
+  const booksById = new Map(availableBooks.map((book) => [book.id, book]));
 
   return (
     <main className="min-h-screen bg-[#171A27] text-white">
@@ -129,12 +130,12 @@ export default function CreateVolumePage() {
             Volumes por capítulos
           </p>
           <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-            Junte seus PDFs em um volume
+            Junte arquivos em um volume
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-            Escolha PDFs da biblioteca, defina a ordem e dê um nome para cada
-            capítulo. Os arquivos originais continuam na biblioteca e não são
-            duplicados.
+            Escolha PDFs, CBRs ou CBZs da biblioteca e organize-os como
+            capítulos. Os arquivos originais permanecem na biblioteca; EPUBs
+            não entram porque já têm capítulos próprios.
           </p>
         </header>
 
@@ -156,9 +157,8 @@ export default function CreateVolumePage() {
               />
             </label>
             <label className="text-sm font-bold text-slate-200">
-              Autor
+              Autor (opcional)
               <input
-                required
                 maxLength={160}
                 disabled={saving}
                 value={author}
@@ -169,11 +169,11 @@ export default function CreateVolumePage() {
             </label>
           </div>
 
-          <section aria-labelledby="volume-pdfs-title">
+          <section aria-labelledby="volume-files-title">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
-                <h2 id="volume-pdfs-title" className="font-bold text-white">
-                  PDFs disponíveis
+                <h2 id="volume-files-title" className="font-bold text-white">
+                  Arquivos disponíveis
                 </h2>
                 <p className="mt-1 text-xs text-slate-400">
                   Selecione os arquivos; a ordem de seleção define os capítulos.
@@ -186,15 +186,15 @@ export default function CreateVolumePage() {
 
             {loading ? (
               <p role="status" className="mt-4 text-sm text-slate-400">
-                Carregando PDFs...
+                Carregando arquivos...
               </p>
-            ) : pdfBooks.length === 0 ? (
+            ) : availableBooks.length === 0 ? (
               <p className="mt-4 rounded-xl border border-white/10 bg-[#171A27] p-4 text-sm text-slate-300">
-                Você ainda não tem PDFs na biblioteca para montar um volume.
+                Adicione PDFs, CBRs ou CBZs à biblioteca para montar um volume.
               </p>
             ) : (
               <ul className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
-                {pdfBooks.map((book) => (
+                {availableBooks.map((book) => (
                   <li key={book.id}>
                     <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-[#171A27]/80 px-3 py-2 transition hover:border-violet-200/25">
                       <input
@@ -211,6 +211,9 @@ export default function CreateVolumePage() {
                         <span className="block truncate text-xs text-slate-400">
                           {book.author}
                         </span>
+                      </span>
+                      <span className="shrink-0 rounded-md border border-violet-200/10 bg-violet-200/[0.06] px-2 py-1 text-[10px] font-bold uppercase text-violet-200">
+                        {book.file_type}
                       </span>
                     </label>
                   </li>

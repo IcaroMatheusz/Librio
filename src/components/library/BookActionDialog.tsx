@@ -129,8 +129,9 @@ export function BookActionDialog({
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-300">
               <span className="font-semibold text-white">{dialog.book.title}</span>{" "}
-              e o arquivo armazenado serão removidos da sua biblioteca. Esta ação
-              não pode ser desfeita.
+              e o arquivo armazenado serão removidos da sua biblioteca. Se fizer
+              parte de um volume, também será removida de lá. Esta ação não pode
+              ser desfeita.
             </p>
             {actionError && (
               <p role="alert" className="mt-3 text-sm text-rose-200">

@@ -465,18 +465,24 @@ export function EpubReader({
       const content = contentRef.current;
       if (!content || !book) return;
       const pageStep = pageWidth + 32;
-      const nextScrollLeft = content.scrollLeft + direction * pageStep;
-      const maxScrollLeft = content.scrollWidth - content.clientWidth;
-      if (direction > 0 && nextScrollLeft > maxScrollLeft + 1) {
+      const maxScrollLeft = Math.max(0, content.scrollWidth - content.clientWidth);
+      const currentScrollLeft = Math.max(
+        0,
+        Math.min(maxScrollLeft, content.scrollLeft),
+      );
+      if (direction > 0 && currentScrollLeft >= maxScrollLeft - 1) {
         changeChapter(1);
         return;
       }
-      if (direction < 0 && nextScrollLeft < 0) {
+      if (direction < 0 && currentScrollLeft <= 1) {
         changeChapter(-1);
         return;
       }
       content.scrollTo({
-        left: Math.max(0, Math.min(maxScrollLeft, nextScrollLeft)),
+        left: Math.max(
+          0,
+          Math.min(maxScrollLeft, currentScrollLeft + direction * pageStep),
+        ),
         behavior: getReaderScrollBehavior(),
       });
     },
@@ -585,7 +591,7 @@ export function EpubReader({
       }`}
     >
       <header
-        className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-2 py-2.5 backdrop-blur sm:px-5 ${
+        className={`relative z-20 flex shrink-0 flex-wrap items-center justify-between gap-2 overflow-visible border-b px-2 py-2.5 backdrop-blur sm:px-5 ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/95"
             : "border-stone-300 bg-[#f2eadc]/95"

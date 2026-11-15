@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, Layers3 } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
 import { PdfReader } from "../../components/reader/PdfReader";
+import { ComicReader } from "../../components/reader/ComicReader";
 import { ChapterSelector } from "../../components/reader/ChapterSelector";
 import { ReaderLoading } from "../../components/reader/ReaderLoading";
 import {
@@ -166,7 +167,7 @@ export default function VolumeReaderPage() {
 
   return (
     <main className="relative flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#111421] text-white">
-      <header className="relative z-10 shrink-0 border-b border-white/[0.07] bg-[#171A27]/80 backdrop-blur">
+      <header className="relative z-30 shrink-0 border-b border-white/[0.07] bg-[#171A27]/95 backdrop-blur">
         <nav className="mx-auto flex w-full max-w-7xl items-center gap-3 px-3 py-3 sm:gap-4 sm:px-8 lg:px-12">
           <Link
             to={returnTo}
@@ -182,7 +183,7 @@ export default function VolumeReaderPage() {
               {volume?.title ?? "Leitor de volume"}
             </h1>
             <p className="truncate text-xs text-slate-400">
-              {volume?.author ?? "PDFs organizados por capítulos"}
+              {volume?.author.trim() || "Arquivos organizados por capítulos"}
             </p>
           </div>
           {volume && (
@@ -258,16 +259,40 @@ export default function VolumeReaderPage() {
               <BookOpen aria-hidden="true" size={15} />
               Capítulo {chapterIndex + 1}: {activeChapter.title}
             </p>
-            <PdfReader
-              key={activeChapter.bookId}
-              file={file}
-              initialProgress={
-                savedProgress.chapterNumber === chapterIndex + 1
-                  ? savedProgress.progress
-                  : 0
-              }
-              onProgressChange={saveProgress}
-            />
+            {activeChapter.book.file_type.toLowerCase() === "pdf" ? (
+              <PdfReader
+                key={activeChapter.bookId}
+                file={file}
+                initialProgress={
+                  savedProgress.chapterNumber === chapterIndex + 1
+                    ? savedProgress.progress
+                    : 0
+                }
+                onProgressChange={saveProgress}
+                onEnd={
+                  chapterIndex < (volume?.chapters.length ?? 0) - 1
+                    ? () => changeChapter(1)
+                    : undefined
+                }
+              />
+            ) : (
+              <ComicReader
+                key={activeChapter.bookId}
+                fileType={activeChapter.book.file_type.toUpperCase()}
+                file={file}
+                initialProgress={
+                  savedProgress.chapterNumber === chapterIndex + 1
+                    ? savedProgress.progress
+                    : 0
+                }
+                onProgressChange={saveProgress}
+                onEnd={
+                  chapterIndex < (volume?.chapters.length ?? 0) - 1
+                    ? () => changeChapter(1)
+                    : undefined
+                }
+              />
+            )}
           </div>
         ) : null}
       </section>

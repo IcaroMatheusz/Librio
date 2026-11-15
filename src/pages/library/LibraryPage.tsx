@@ -13,6 +13,7 @@ import { LocalBooksSection } from "../../components/library/LocalBooksSection";
 import { LibraryNotice, type LibraryNoticeData } from "../../components/library/LibraryNotice";
 import { LibraryPageHeader } from "../../components/library/LibraryPageHeader";
 import { VolumeCard } from "../../components/library/VolumeCard";
+import { VolumeAuthorDialog } from "../../components/library/VolumeAuthorDialog";
 import { StorageIndicator } from "../../components/StorageIndicator";
 import {
   deleteBook,
@@ -38,6 +39,7 @@ import type { LocalBook } from "../../../shared/desktop";
 import {
   deleteVolume as deleteVolumeService,
   getVolumes,
+  updateVolumeAuthor,
   type BookVolume,
 } from "../../services/volumesService";
 import { getLocalReadingProgress } from "../../services/progressService";
@@ -66,6 +68,11 @@ export default function LibraryPage() {
   const [storageError, setStorageError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [dialog, setDialog] = useState<BookActionDialogState | null>(null);
+  const [editingVolume, setEditingVolume] = useState<BookVolume | null>(null);
+  const [volumeAuthorDraft, setVolumeAuthorDraft] = useState("");
+  const [volumeAuthorError, setVolumeAuthorError] = useState<string | null>(null);
+  const [volumeDeleteWarning, setVolumeDeleteWarning] =
+    useState<BookVolume | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [authorDraft, setAuthorDraft] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -281,9 +288,13 @@ export default function LibraryPage() {
   }
 
   async function handleDeleteVolume(volume: BookVolume) {
+    if (volume.chapters.length > 0) {
+      setVolumeDeleteWarning(volume);
+      return;
+    }
     if (
       !window.confirm(
-        `Excluir o volume “${volume.title}”? Os PDFs originais continuarão na biblioteca.`,
+        `Excluir o volume “${volume.title}”?`,
       )
     ) {
       return;
@@ -297,7 +308,7 @@ export default function LibraryPage() {
         current.filter((currentVolume) => currentVolume.id !== volume.id),
       );
       setActionNotice({
-        message: `O volume “${volume.title}” foi excluído. Os PDFs originais foram mantidos.`,
+        message: `O volume “${volume.title}” foi excluído.`,
         type: "success",
       });
     } catch (caughtError) {
@@ -311,6 +322,93 @@ export default function LibraryPage() {
     } finally {
       setActionBusy(false);
     }
+  }
+
+  async function handleUpdateVolumeAuthor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingVolume) return;
+
+    setActionBusy(true);
+    setVolumeAuthorError(null);
+    try {
+      const author = await updateVolumeAuthor(
+        editingVolume.id,
+        volumeAuthorDraft,
+      );
+      setVolumes((currentVolumes) =>
+        currentVolumes.map((volume) =>
+          volume.id === editingVolume.id ? { ...volume, author } : volume,
+        ),
+      );
+      setEditingVolume(null);
+      setActionNotice({
+        message: author
+          ? `O autor do volume “${editingVolume.title}” foi atualizado.`
+          : `O autor do volume “${editingVolume.title}” foi removido.`,
+        type: "success",
+      });
+    } catch (caughtError) {
+      setVolumeAuthorError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível atualizar o autor do volume.",
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleVolumeCoverSelect(volume: BookVolume, file: File) {
+    const firstChapterBook = volume.chapters[0]?.book;
+    if (!firstChapterBook) return;
+
+    setCoverBusyId(firstChapterBook.id);
+    setActionNotice(null);
+    try {
+      const { book: updatedBook, warning } = await uploadBookCover(
+        firstChapterBook.id,
+        file,
+      );
+      setBooks((currentBooks) =>
+        currentBooks.map((book) =>
+          book.id === updatedBook.id ? updatedBook : book,
+        ),
+      );
+      setVolumes((currentVolumes) =>
+        currentVolumes.map((currentVolume) => ({
+          ...currentVolume,
+          chapters: currentVolume.chapters.map((chapter) =>
+            chapter.bookId === updatedBook.id
+              ? { ...chapter, book: updatedBook }
+              : chapter,
+          ),
+        })),
+      );
+      await refreshStorage();
+      setActionNotice({
+        message:
+          warning ??
+          `A capa do capítulo 1 e do volume “${volume.title}” foi atualizada.`,
+        type: warning ? "warning" : "success",
+      });
+    } catch (caughtError) {
+      setActionNotice({
+        message:
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Não foi possível atualizar a capa do volume.",
+        type: "error",
+      });
+    } finally {
+      setCoverBusyId(null);
+    }
+  }
+
+  function openVolumeAuthorDialog(volume: BookVolume) {
+    setEditingVolume(volume);
+    setVolumeAuthorDraft(volume.author);
+    setVolumeAuthorError(null);
+    setActionNotice(null);
   }
 
   function openDialog(type: BookActionDialogState["type"], book: Book) {
@@ -385,6 +483,16 @@ export default function LibraryPage() {
       setBooks((currentBooks) =>
         currentBooks.filter((book) => book.id !== dialog.book.id),
       );
+      try {
+        setVolumes(await getVolumes());
+        setVolumeError(null);
+      } catch (volumeLoadError) {
+        setVolumeError(
+          volumeLoadError instanceof Error
+            ? volumeLoadError.message
+            : "Não foi possível atualizar os capítulos dos volumes.",
+        );
+      }
       await refreshStorage();
       setDialog(null);
       setActionNotice(
@@ -508,6 +616,11 @@ export default function LibraryPage() {
                     key={volume.id}
                     volume={volume}
                     deleting={actionBusy}
+                    coverBusy={coverBusyId === volume.chapters[0]?.book.id}
+                    onEditAuthor={() => openVolumeAuthorDialog(volume)}
+                    onCoverSelect={(file) =>
+                      void handleVolumeCoverSelect(volume, file)
+                    }
                     onDelete={() => void handleDeleteVolume(volume)}
                   />
                 ))}
@@ -551,6 +664,66 @@ export default function LibraryPage() {
           onDelete={() => void handleDelete()}
           onClose={() => setDialog(null)}
         />
+      )}
+
+      {editingVolume && (
+        <VolumeAuthorDialog
+          volumeTitle={editingVolume.title}
+          author={volumeAuthorDraft}
+          busy={actionBusy}
+          error={volumeAuthorError}
+          onChange={setVolumeAuthorDraft}
+          onSubmit={handleUpdateVolumeAuthor}
+          onClose={() => setEditingVolume(null)}
+        />
+      )}
+
+      {volumeDeleteWarning && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setVolumeDeleteWarning(null);
+            }
+          }}
+        >
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="volume-delete-warning-title"
+            className="w-full max-w-lg rounded-3xl border border-amber-200/15 bg-[#222638] p-6 shadow-2xl shadow-black/40 sm:p-8"
+          >
+            <h2
+              id="volume-delete-warning-title"
+              className="text-xl font-bold text-white"
+            >
+              Exclua as obras antes do volume
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              O volume “{volumeDeleteWarning.title}” ainda contém obras. Para
+              excluí-lo, primeiro exclua estas obras da biblioteca. Isso também
+              removerá os arquivos originais.
+            </p>
+            <ul className="mt-3 max-h-40 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-[#171A27]/70 p-3 text-sm text-slate-200">
+              {volumeDeleteWarning.chapters.map((chapter) => (
+                <li key={chapter.bookId} className="truncate">
+                  {chapter.book.title}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-sm text-slate-400">
+              Depois de excluir as obras, volte e exclua o volume vazio.
+            </p>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setVolumeDeleteWarning(null)}
+              className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-violet-400 px-5 py-3 text-sm font-bold text-[#1d1930] transition hover:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:w-auto"
+            >
+              Entendi
+            </button>
+          </section>
+        </div>
       )}
     </main>
   );
