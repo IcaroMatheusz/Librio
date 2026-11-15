@@ -1,14 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 
-import type { ReaderTheme } from "../../hooks/useReaderTheme";
-
 interface PdfContinuousPageProps {
   document: PDFDocumentProxy;
   pageNumber: number;
   zoom: number;
   width: number;
-  theme: ReaderTheme;
   onVisible: (pageNumber: number) => void;
 }
 
@@ -20,7 +17,6 @@ export function PdfContinuousPage({
   pageNumber,
   zoom,
   width,
-  theme,
   onVisible,
 }: PdfContinuousPageProps) {
   const pageRef = useRef<HTMLElement>(null);
@@ -155,10 +151,6 @@ export function PdfContinuousPage({
             ref={canvasRef}
             aria-label={`Página ${pageNumber}`}
             className="block max-w-full object-contain"
-            style={{
-              filter:
-                theme === "night" ? "invert(0.9) hue-rotate(180deg)" : undefined,
-            }}
           />
         </div>
       )}

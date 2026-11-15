@@ -566,7 +566,6 @@ export function PdfReader({
                   pageNumber={index + 1}
                   zoom={zoom}
                   width={containerWidth || window.innerWidth}
-                  theme={theme}
                   onVisible={handleContinuousPageVisible}
                 />
               ))}
@@ -597,8 +596,6 @@ export function PdfReader({
               className="cursor-pointer object-contain shadow-2xl shadow-black/30"
               style={{
                 transform: `scale(${pinchZoom.previewScale})`,
-                filter:
-                  theme === "night" ? "invert(0.9) hue-rotate(180deg)" : undefined,
               }}
             />
           </div>

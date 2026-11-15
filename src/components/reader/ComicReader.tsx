@@ -459,10 +459,6 @@ export function ComicReader({
                   style={{
                     zoom,
                     transform: `scale(${pinchZoom.previewScale})`,
-                    filter:
-                      theme === "night"
-                        ? "invert(0.9) hue-rotate(180deg)"
-                        : undefined,
                   }}
                 />
               </div>
@@ -480,8 +476,6 @@ export function ComicReader({
               style={{
                 zoom,
                 transform: `scale(${pinchZoom.previewScale})`,
-                filter:
-                  theme === "night" ? "invert(0.9) hue-rotate(180deg)" : undefined,
                 maxHeight:
                   viewportSize.height > 0
                     ? `${viewportSize.height}px`
