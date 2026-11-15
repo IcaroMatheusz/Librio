@@ -11,6 +11,7 @@ import {
 
 export const BOOKS_BUCKET = "books";
 export const COVERARTS_BUCKET = "coverarts";
+export type UploadBookStageCallback = (stage: string, details?: string) => void;
 // TODO: Criar o bucket privado "books" no Supabase e permitir acesso somente à pasta auth.uid().
 const BOOK_FIELDS =
   "id, user_id, title, author, description, cover_url, file_path, file_type, file_size, created_at, updated_at";
@@ -35,6 +36,7 @@ function uploadFileWithProgress(
     body.append("", file, fileName);
 
     request.open("PUT", signedUrl);
+    request.timeout = 30 * 60 * 1000;
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
         onProgress(Math.round((event.loaded / event.total) * 100));
@@ -69,6 +71,9 @@ function uploadFileWithProgress(
     request.addEventListener("abort", () => {
       reject(new Error("O envio do arquivo foi interrompido."));
     });
+    request.addEventListener("timeout", () => {
+      reject(new Error("O envio excedeu o limite de 30 minutos. Verifique a conexão e tente novamente."));
+    });
     request.send(body);
   });
 }
@@ -80,7 +85,9 @@ async function uploadStorageFile(
   fileName: string,
   onProgress: (progress: number) => void = () => {},
   bucket: string = BOOKS_BUCKET,
+  onStage?: UploadBookStageCallback,
 ): Promise<void> {
+  onStage?.("signed_url", `Solicitando autorização de envio ao bucket ${bucket}.`);
   const { data, error } = await client.storage
     .from(bucket)
     .createSignedUploadUrl(filePath);
@@ -89,6 +96,7 @@ async function uploadStorageFile(
     throw new Error(`Não foi possível preparar o arquivo: ${error.message}`);
   }
 
+  onStage?.("transfer_bytes", `Autorização recebida; enviando bytes ao bucket ${bucket}.`);
   await uploadFileWithProgress(data.signedUrl, file, fileName, onProgress);
 }
 
@@ -649,7 +657,9 @@ export async function uploadBook(
   author: string,
   onProgress: (progress: number) => void = () => {},
   coverPreview?: Blob,
+  onStage?: UploadBookStageCallback,
 ): Promise<Book> {
+  onStage?.("validating", "Conferindo formato e tamanho do arquivo.");
   const extension = file.name.split(".").pop()?.toLowerCase();
   const fileTypes: Record<string, BookFileType> = {
     cbr: "cbr",
@@ -663,6 +673,7 @@ export async function uploadBook(
   }
   if (file.size === 0) throw new Error("O arquivo está vazio.");
 
+  onStage?.("storage_quota", "Consultando o espaço disponível na biblioteca.");
   const storage = await getUserStorage();
   const canStoreCover =
     Boolean(coverPreview) &&
@@ -673,6 +684,7 @@ export async function uploadBook(
     throw new Error("Este arquivo ultrapassa o espaço disponível na sua biblioteca.");
   }
 
+  onStage?.("supabase_client", "Preparando a conexão autenticada com o Supabase.");
   const client = await getSupabaseClient();
   const bookId = crypto.randomUUID();
   const filePath = `${userId}/${bookId}.${fileType}`;
@@ -693,6 +705,8 @@ export async function uploadBook(
       file.name,
       (progress) =>
         onProgress(Math.round((progress * file.size) / totalSize)),
+      BOOKS_BUCKET,
+      onStage,
     );
   } catch (uploadError) {
     const cleanupError = await removeUploadedFiles(client, uploadedPaths);
@@ -739,6 +753,7 @@ export async function uploadBook(
             ),
           ),
         COVERARTS_BUCKET,
+        onStage,
       );
       savedCoverPath = coverPath;
       uploadedCoverPaths.push(coverPath);
@@ -763,6 +778,7 @@ export async function uploadBook(
     onProgress(100);
   }
 
+  onStage?.("save_metadata", "Arquivo enviado; salvando os dados da obra na biblioteca.");
   const { data: book, error: insertError } = await client
     .from("books")
     .insert({
@@ -796,6 +812,7 @@ export async function uploadBook(
     throw new Error(`Não foi possível salvar a obra: ${insertError.message}`);
   }
 
+  onStage?.("update_quota", "Atualizando o espaço utilizado na biblioteca.");
   const { error: storageError } = await client
     .from("user_storage")
     .update({
@@ -828,5 +845,6 @@ export async function uploadBook(
     throw new Error(`Não foi possível atualizar o armazenamento: ${storageError.message}`);
   }
 
+  onStage?.("complete", "Arquivo, registro e espaço de armazenamento confirmados.");
   return book;
 }

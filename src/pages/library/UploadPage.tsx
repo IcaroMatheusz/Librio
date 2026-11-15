@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -10,9 +11,13 @@ import {
   BookOpen,
   BookUp,
   Check,
+  Clipboard,
+  ClipboardCheck,
   FileArchive,
   FileText,
   ImagePlus,
+  LoaderCircle,
+  SearchCheck,
   Sparkles,
   Upload,
 } from "lucide-react";
@@ -40,11 +45,56 @@ interface UploadResult {
   coverError?: string;
 }
 
+interface UploadDiagnostic {
+  time: string;
+  code: string;
+  message: string;
+  details?: string;
+}
+
+const UPLOAD_DIAGNOSTICS_KEY = "librio-upload-diagnostics-v1";
+const MAX_UPLOAD_DIAGNOSTICS = 120;
+
+function readUploadDiagnostics(): UploadDiagnostic[] {
+  try {
+    const saved = sessionStorage.getItem(UPLOAD_DIAGNOSTICS_KEY);
+    if (!saved) return [];
+    const parsed: unknown = JSON.parse(saved);
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (item): item is UploadDiagnostic =>
+            typeof item === "object" &&
+            item !== null &&
+            "time" in item &&
+            typeof item.time === "string" &&
+            "code" in item &&
+            typeof item.code === "string" &&
+            "message" in item &&
+            typeof item.message === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function getFileDiagnostic(file: File) {
+  return `extensão=${file.name.split(".").pop()?.toLowerCase() || "sem extensão"}; tamanho=${file.size} bytes; MIME=${file.type || "não informado"}`;
+}
+
 export default function UploadPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const bookFileInputRef = useRef<HTMLInputElement>(null);
   const bookFileChangeHandlerRef = useRef<(file: File | null) => void>(() => {});
+  const diagnosticRecorderRef = useRef<(code: string, message: string, details?: string) => void>(() => {});
+  const pickerPendingRef = useRef(false);
+  const pickerBlurredRef = useRef(false);
+  const pickerReturnTimerRef = useRef<number | null>(null);
+  const currentStageRef = useRef("aguardando início");
+  const uploadStartedAtRef = useRef(0);
+  const uploadProgressRef = useRef<number | null>(null);
+  const lastObservedProgressRef = useRef<number | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [isBookFileDragging, setIsBookFileDragging] = useState(false);
   const [title, setTitle] = useState("");
@@ -52,6 +102,7 @@ export default function UploadPage() {
   const [result, setResult] = useState<UploadResult | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadElapsedSeconds, setUploadElapsedSeconds] = useState(0);
   const [uploadStage, setUploadStage] = useState("");
   const [coverPreparation, setCoverPreparation] = useState<{
     percent: number | null;
@@ -60,6 +111,72 @@ export default function UploadPage() {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [manualCoverFile, setManualCoverFile] = useState<File | null>(null);
   const [manualCoverUrl, setManualCoverUrl] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<UploadDiagnostic[]>(readUploadDiagnostics);
+  const diagnosticsRef = useRef(diagnostics);
+  const [pickerPending, setPickerPending] = useState(false);
+  const [pickerStatus, setPickerStatus] = useState("");
+  const [diagnosticCopyStatus, setDiagnosticCopyStatus] = useState("");
+
+  const recordDiagnostic = useCallback((code: string, message: string, details?: string) => {
+    const entry = { time: new Date().toISOString(), code, message, details };
+    const next = [...diagnosticsRef.current, entry].slice(-MAX_UPLOAD_DIAGNOSTICS);
+    diagnosticsRef.current = next;
+    setDiagnostics(next);
+    try {
+      sessionStorage.setItem(UPLOAD_DIAGNOSTICS_KEY, JSON.stringify(next));
+    } catch {
+      // The upload remains usable when session storage is unavailable.
+    }
+  }, []);
+
+  useEffect(() => {
+    diagnosticRecorderRef.current = recordDiagnostic;
+  }, [recordDiagnostic]);
+
+  useEffect(() => {
+    if (!uploading) return;
+    const timer = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - uploadStartedAtRef.current) / 1000);
+      setUploadElapsedSeconds(elapsed);
+      if (uploadProgressRef.current === lastObservedProgressRef.current) {
+        diagnosticRecorderRef.current(
+          "UPLOAD_NO_PROGRESS",
+          "A etapa atual continua sem mudança de progresso há pelo menos 15 segundos.",
+          `etapa=${currentStageRef.current}; progresso=${uploadProgressRef.current ?? "indeterminado"}%; decorrido=${elapsed}s; online=${navigator.onLine}`,
+        );
+      }
+      lastObservedProgressRef.current = uploadProgressRef.current;
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [uploading]);
+
+  useEffect(() => {
+    const browser = navigator as Navigator & {
+      connection?: { effectiveType?: string };
+      userAgentData?: { platform?: string };
+    };
+    recordDiagnostic(
+      "PAGE_READY",
+      "Tela de envio pronta.",
+      `online=${navigator.onLine}; conexão=${browser.connection?.effectiveType ?? "indisponível"}; plataforma=${browser.userAgentData?.platform ?? navigator.platform}; viewport=${window.innerWidth}x${window.innerHeight}; sessão=${user ? "ativa" : "ausente"}`,
+    );
+    // Log only safe browser metadata; never include tokens or signed URLs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const browser = navigator as Navigator & {
+      connection?: { effectiveType?: string };
+    };
+    const handleOnline = () => recordDiagnostic("NETWORK_ONLINE", "O navegador informou que voltou a ficar online.", `tipo=${browser.connection?.effectiveType ?? "indisponível"}`);
+    const handleOffline = () => recordDiagnostic("NETWORK_OFFLINE", "O navegador informou que ficou offline.");
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [recordDiagnostic]);
 
   useEffect(() => {
     if (!coverUrl) return;
@@ -71,8 +188,13 @@ export default function UploadPage() {
     return () => URL.revokeObjectURL(manualCoverUrl);
   }, [manualCoverUrl]);
 
-  function handleFileChange(selectedFile: File | null) {
+  const handleFileChange = useCallback((selectedFile: File | null) => {
     if (!selectedFile) {
+      recordDiagnostic(
+        "FILE_EVENT_EMPTY",
+        "O navegador notificou uma seleção sem entregar um arquivo.",
+      );
+      setPickerStatus("O navegador voltou sem entregar o arquivo. Tente novamente ou use outro app de arquivos.");
       setResult({
         type: "error",
         message:
@@ -87,9 +209,12 @@ export default function UploadPage() {
     setFile(null);
     setManualCoverFile(null);
     setManualCoverUrl(null);
+    setPickerStatus("");
 
     const extension = selectedFile.name.split(".").pop()?.toLowerCase();
+    recordDiagnostic("FILE_RECEIVED", "Arquivo recebido pelo formulário.", getFileDiagnostic(selectedFile));
     if (!["pdf", "epub", "cbr", "cbz"].includes(extension ?? "")) {
+      recordDiagnostic("VALIDATION_REJECTED_TYPE", "Arquivo recusado por formato não compatível.", getFileDiagnostic(selectedFile));
       setResult({
         type: "error",
         message:
@@ -98,20 +223,25 @@ export default function UploadPage() {
       return;
     }
     if (selectedFile.size > MAX_FILE_SIZE) {
+      recordDiagnostic("VALIDATION_REJECTED_SIZE", "Arquivo recusado por exceder 100 MB.", getFileDiagnostic(selectedFile));
       setResult({
         type: "error",
         message: "O arquivo deve ter no máximo 100 MB.",
       });
       return;
     }
+    if (selectedFile.size === 0) {
+      recordDiagnostic("VALIDATION_REJECTED_EMPTY", "Arquivo recusado porque está vazio.", getFileDiagnostic(selectedFile));
+      setResult({ type: "error", message: "O arquivo selecionado está vazio. Escolha outra cópia e tente novamente." });
+      return;
+    }
 
     setFile(selectedFile);
+    recordDiagnostic("FILE_ACCEPTED", "Arquivo validado e pronto para envio.", getFileDiagnostic(selectedFile));
     setTitle((currentTitle) =>
       currentTitle || selectedFile.name.replace(/\.[^.]+$/, ""),
     );
-  }
-
-  bookFileChangeHandlerRef.current = handleFileChange;
+  }, [recordDiagnostic]);
 
   useEffect(() => {
     // Keep the native file input outside React's managed tree. Android's
@@ -133,24 +263,103 @@ export default function UploadPage() {
 
     const processNativeSelection = () => {
       const selectedFile = input.files?.[0] ?? null;
-      if (!selectedFile) return;
+      diagnosticRecorderRef.current(
+        "NATIVE_CHANGE",
+        selectedFile
+          ? "Evento change do seletor nativo entregou um arquivo."
+          : "Evento change do seletor nativo chegou sem arquivo.",
+        `files.length=${input.files?.length ?? 0}${selectedFile ? `; ${getFileDiagnostic(selectedFile)}` : ""}`,
+      );
+      pickerPendingRef.current = false;
+      setPickerPending(false);
+      setPickerStatus("");
+      if (pickerReturnTimerRef.current !== null) {
+        window.clearTimeout(pickerReturnTimerRef.current);
+        pickerReturnTimerRef.current = null;
+      }
+      if (!selectedFile) {
+        setPickerStatus("O seletor voltou sem arquivo. Se você cancelou, pode escolher novamente quando quiser.");
+        return;
+      }
       bookFileChangeHandlerRef.current(selectedFile);
       // Allow selecting the same file again; React already holds the File.
-      input.value = "";
+      window.setTimeout(() => {
+        input.value = "";
+      }, 0);
     };
 
-    input.addEventListener("input", processNativeSelection);
+    const logNativeInput = () => {
+      const selectedFile = input.files?.[0] ?? null;
+      diagnosticRecorderRef.current(
+        "NATIVE_INPUT",
+        selectedFile
+          ? "Evento input do seletor nativo entregou um arquivo."
+          : "Evento input do seletor nativo sem arquivo.",
+        `files.length=${input.files?.length ?? 0}${selectedFile ? `; ${getFileDiagnostic(selectedFile)}` : ""}`,
+      );
+    };
+
+    const handlePickerCancel = () => {
+      pickerPendingRef.current = false;
+      setPickerPending(false);
+      if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
+      setPickerStatus("Seleção cancelada. Nenhum arquivo foi enviado.");
+      diagnosticRecorderRef.current("PICKER_CANCEL", "O seletor de arquivos foi cancelado pelo usuário.");
+    };
+
+    const handleWindowBlur = () => {
+      if (pickerPendingRef.current) pickerBlurredRef.current = true;
+    };
+    const handleWindowFocus = () => {
+      if (!pickerPendingRef.current || !pickerBlurredRef.current) return;
+      pickerBlurredRef.current = false;
+      if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
+      pickerReturnTimerRef.current = window.setTimeout(() => {
+        if (!pickerPendingRef.current) return;
+        pickerPendingRef.current = false;
+        setPickerPending(false);
+        setPickerStatus("O seletor fechou sem retornar um arquivo. Tente novamente e aguarde a confirmação do app de arquivos.");
+        diagnosticRecorderRef.current(
+          "PICKER_RETURNED_EMPTY",
+          "O navegador recuperou o foco, mas não recebeu arquivo nem evento change do seletor.",
+          `online=${navigator.onLine}; visibility=${document.visibilityState}`,
+        );
+      }, 1800);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && pickerPendingRef.current) {
+        pickerBlurredRef.current = true;
+        diagnosticRecorderRef.current("PICKER_HIDDEN", "A página foi para segundo plano enquanto o seletor estava aberto.");
+      } else if (document.visibilityState === "visible") {
+        handleWindowFocus();
+      }
+    };
+
+    input.addEventListener("input", logNativeInput);
     input.addEventListener("change", processNativeSelection);
+    input.addEventListener("cancel", handlePickerCancel);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     document.body.appendChild(input);
     bookFileInputRef.current = input;
 
     return () => {
-      input.removeEventListener("input", processNativeSelection);
+      input.removeEventListener("input", logNativeInput);
       input.removeEventListener("change", processNativeSelection);
+      input.removeEventListener("cancel", handlePickerCancel);
+      window.removeEventListener("blur", handleWindowBlur);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
       input.remove();
       if (bookFileInputRef.current === input) bookFileInputRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    bookFileChangeHandlerRef.current = handleFileChange;
+  }, [handleFileChange]);
 
   function openBookFilePicker() {
     if (uploading) return;
@@ -160,10 +369,48 @@ export default function UploadPage() {
         type: "error",
         message: "Não foi possível abrir o seletor. Recarregue a página e tente novamente.",
       });
+      recordDiagnostic("PICKER_UNAVAILABLE", "O input nativo de arquivos não está disponível.");
       return;
     }
+    if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
     input.value = "";
-    input.click();
+    pickerPendingRef.current = true;
+    setPickerPending(true);
+    pickerBlurredRef.current = false;
+    setPickerStatus("Aguardando o seletor de arquivos do dispositivo…");
+    setResult(null);
+    recordDiagnostic(
+      "PICKER_OPEN_REQUESTED",
+      "Toque recebido; chamando o seletor nativo de arquivos.",
+      `input conectado=${document.body.contains(input)}; protocolo=${location.protocol}`,
+    );
+    pickerReturnTimerRef.current = window.setTimeout(() => {
+      if (!pickerPendingRef.current) return;
+      const likelyBlocked = !pickerBlurredRef.current && document.visibilityState === "visible";
+      setPickerStatus(
+        likelyBlocked
+          ? "O seletor ainda não respondeu. O navegador pode ter bloqueado a abertura; tente tocar novamente."
+          : "O seletor ainda não retornou um arquivo. Aguarde ou cancele e tente novamente.",
+      );
+      diagnosticRecorderRef.current(
+        "PICKER_TIMEOUT",
+        likelyBlocked
+          ? "O seletor não tirou a página de foco nem retornou evento em 60 segundos."
+          : "O seletor permaneceu aberto sem retornar um arquivo por 60 segundos.",
+        `visibility=${document.visibilityState}; online=${navigator.onLine}`,
+      );
+    }, 60_000);
+    try {
+      input.click();
+    } catch (caughtError) {
+      pickerPendingRef.current = false;
+      setPickerPending(false);
+      if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
+      setPickerStatus("");
+      const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      recordDiagnostic("PICKER_OPEN_FAILED", "O navegador lançou erro ao abrir o seletor.", message);
+      setResult({ type: "error", message: `Não foi possível abrir o seletor de arquivos: ${message}` });
+    }
   }
 
   function handleManualCoverChange(event: ChangeEvent<HTMLInputElement>) {
@@ -173,7 +420,9 @@ export default function UploadPage() {
     setManualCoverFile(null);
     setManualCoverUrl(null);
     if (!selectedCover) return;
+    recordDiagnostic("COVER_RECEIVED", "Imagem de capa recebida.", `tamanho=${selectedCover.size} bytes; MIME=${selectedCover.type || "não informado"}`);
     if (!selectedCover.type.startsWith("image/")) {
+      recordDiagnostic("COVER_REJECTED_TYPE", "Capa recusada por não ser imagem.", `MIME=${selectedCover.type || "não informado"}`);
       setResult({
         type: "error",
         message: "A capa precisa ser um arquivo de imagem.",
@@ -181,6 +430,7 @@ export default function UploadPage() {
       return;
     }
     if (selectedCover.size > 10 * 1024 * 1024) {
+      recordDiagnostic("COVER_REJECTED_SIZE", "Capa recusada por exceder 10 MB.", `tamanho=${selectedCover.size} bytes`);
       setResult({
         type: "error",
         message: "A imagem da capa deve ter até 10 MB.",
@@ -190,6 +440,7 @@ export default function UploadPage() {
 
     setManualCoverFile(selectedCover);
     setManualCoverUrl(URL.createObjectURL(selectedCover));
+    recordDiagnostic("COVER_ACCEPTED", "Imagem de capa validada.");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -198,6 +449,7 @@ export default function UploadPage() {
     const selectedTitle =
       title.trim() || selectedFile?.name.replace(/\.[^.]+$/, "").trim() || "";
     if (!user) {
+      recordDiagnostic("VALIDATION_NO_SESSION", "Envio bloqueado: não há sessão autenticada.");
       setResult({
         type: "error",
         message: "Sua sessão expirou. Entre novamente antes de enviar a obra.",
@@ -205,6 +457,7 @@ export default function UploadPage() {
       return;
     }
     if (!selectedFile) {
+      recordDiagnostic("VALIDATION_NO_FILE", "Envio bloqueado: nenhum arquivo selecionado.", `input.files=${bookFileInputRef.current?.files?.length ?? 0}`);
       setResult({
         type: "error",
         message: "Escolha um arquivo antes de enviar.",
@@ -212,10 +465,22 @@ export default function UploadPage() {
       return;
     }
     if (!selectedTitle) {
+      recordDiagnostic("VALIDATION_NO_TITLE", "Envio bloqueado: título vazio.");
       setResult({
         type: "error",
         message: "Informe um título para a obra antes de enviar.",
       });
+      return;
+    }
+    if (selectedTitle.length > 200) {
+      recordDiagnostic("VALIDATION_TITLE_TOO_LONG", "Envio bloqueado: título excede 200 caracteres.", `caracteres=${selectedTitle.length}`);
+      setResult({ type: "error", message: "O título deve ter no máximo 200 caracteres." });
+      return;
+    }
+    if (selectedFile.size === 0 || selectedFile.size > MAX_FILE_SIZE) {
+      const tooLarge = selectedFile.size > MAX_FILE_SIZE;
+      recordDiagnostic(tooLarge ? "VALIDATION_FILE_TOO_LARGE" : "VALIDATION_EMPTY_FILE", tooLarge ? "Envio bloqueado: arquivo excede 100 MB." : "Envio bloqueado: arquivo vazio.", getFileDiagnostic(selectedFile));
+      setResult({ type: "error", message: tooLarge ? "O arquivo deve ter no máximo 100 MB." : "O arquivo selecionado está vazio. Escolha outra cópia." });
       return;
     }
     if (!file) setFile(selectedFile);
@@ -224,12 +489,18 @@ export default function UploadPage() {
     setResult(null);
     setCoverUrl(null);
     setUploadProgress(null);
+    uploadProgressRef.current = null;
+    lastObservedProgressRef.current = null;
+    uploadStartedAtRef.current = Date.now();
+    setUploadElapsedSeconds(0);
+    currentStageRef.current = "Preparando a capa";
     setUploadStage(
       manualCoverFile
         ? "Preparando a capa escolhida..."
         : "Preparando a prévia da capa...",
     );
     setUploading(true);
+    recordDiagnostic("UPLOAD_STARTED", "Validações locais concluídas; iniciando preparação do envio.", `${getFileDiagnostic(selectedFile)}; título=${selectedTitle.length} caracteres; sessão=ativa; online=${navigator.onLine}`);
 
     let generatedCoverUrl: string | null = null;
     let coverPreview: Blob | undefined;
@@ -238,11 +509,14 @@ export default function UploadPage() {
     const extension = selectedFile.name.split(".").pop()?.toLowerCase();
     const canGenerateCover = ["pdf", "cbr", "cbz"].includes(extension ?? "");
     const onCoverProgress: CoverPreviewProgress = (percent, stage) => {
+      currentStageRef.current = stage;
+      setUploadStage(stage);
       setCoverPreparation({ percent, stage });
     };
 
     try {
       if (manualCoverFile) {
+        recordDiagnostic("COVER_PREPARATION_STARTED", "Preparando a capa personalizada.");
         setCoverPreparation({
           percent: 5,
           stage: "Preparando a capa escolhida...",
@@ -253,6 +527,7 @@ export default function UploadPage() {
         );
         generatedCoverUrl = URL.createObjectURL(coverPreview);
       } else if (canGenerateCover) {
+        recordDiagnostic("COVER_PREPARATION_STARTED", "Gerando prévia da primeira página.", `tipo=${extension}`);
         setCoverPreparation({
           percent: 5,
           stage: "Lendo a primeira página para gerar a capa...",
@@ -270,22 +545,34 @@ export default function UploadPage() {
             caughtError instanceof Error
               ? caughtError.message
               : "Ocorreu um erro desconhecido ao gerar a capa.";
+          recordDiagnostic("COVER_PREPARATION_FAILED", "Não foi possível gerar a prévia; o envio continuará sem capa.", coverError);
         }
       } else {
         coverUnavailable = true;
         coverError =
           "A geração automática da prévia ainda não é compatível com EPUB.";
+        recordDiagnostic("COVER_NOT_SUPPORTED", "EPUB não gera prévia automática de capa.");
       }
 
       setCoverPreparation(null);
       setUploadStage("Enviando arquivo...");
+      currentStageRef.current = "Enviando arquivo...";
+      recordDiagnostic("UPLOAD_SERVICE_STARTED", "Preparação de armazenamento iniciada.");
       const uploadedBook = await uploadBook(
         user.id,
         selectedFile,
         selectedTitle,
         author,
-        setUploadProgress,
+        (progress) => {
+          uploadProgressRef.current = progress;
+          setUploadProgress(progress);
+        },
         coverPreview,
+        (stage, details) => {
+          currentStageRef.current = details ?? stage;
+          setUploadStage(currentStageRef.current);
+          recordDiagnostic(`UPLOAD_${stage.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`, details ?? stage);
+        },
       );
       if (uploadedBook.cover_url && generatedCoverUrl) {
         setCoverUrl(generatedCoverUrl);
@@ -300,19 +587,72 @@ export default function UploadPage() {
         coverUnavailable,
         coverError,
       });
+      recordDiagnostic("UPLOAD_SUCCEEDED", "Obra salva na biblioteca.", `tipo=${uploadedBook.file_type}; tamanho=${uploadedBook.file_size} bytes; capa=${Boolean(uploadedBook.cover_url)}`);
     } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      recordDiagnostic("UPLOAD_FAILED", "O envio foi interrompido com erro.", `etapa=${currentStageRef.current}; mensagem=${message}; online=${navigator.onLine}`);
       setResult({
         type: "error",
-        message:
-          caughtError instanceof Error
-            ? caughtError.message
-            : "Não foi possível enviar a obra.",
+        message,
       });
     } finally {
       if (generatedCoverUrl) URL.revokeObjectURL(generatedCoverUrl);
       setCoverPreparation(null);
       setUploading(false);
       setUploadStage("");
+      currentStageRef.current = "aguardando início";
+    }
+  }
+
+  async function copyUploadDiagnostics() {
+    const browser = navigator as Navigator & {
+      connection?: { effectiveType?: string; downlink?: number };
+      userAgentData?: { platform?: string };
+    };
+    const report = [
+      "Librio · diagnóstico de upload",
+      `Gerado: ${new Date().toISOString()}`,
+      `Página: ${location.origin}${location.pathname}`,
+      `Navegador: ${navigator.userAgent}`,
+      `Plataforma: ${browser.userAgentData?.platform ?? navigator.platform}`,
+      `Conexão: online=${navigator.onLine}; tipo=${browser.connection?.effectiveType ?? "indisponível"}; downlink=${browser.connection?.downlink ?? "indisponível"} Mbps`,
+      `Tela: ${window.innerWidth}x${window.innerHeight}; DPR=${window.devicePixelRatio}; visibility=${document.visibilityState}`,
+      `Sessão autenticada: ${Boolean(user)}`,
+      `Arquivo atual: ${file ? getFileDiagnostic(file) : "nenhum"}`,
+      `Etapa atual: ${currentStageRef.current}`,
+      "Eventos recentes (mais antigos primeiro):",
+      ...diagnostics.map((entry) =>
+        `[${entry.time}] ${entry.code}: ${entry.message}${entry.details ? ` · ${entry.details}` : ""}`,
+      ),
+      "Tokens, URLs assinadas e conteúdo dos arquivos não são incluídos.",
+    ].join("\n");
+
+    try {
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(report);
+          copied = true;
+        } catch {
+          // Fall back for mobile browsers that expose Clipboard API but deny it.
+        }
+      }
+      if (!copied) {
+        const temporaryField = document.createElement("textarea");
+        temporaryField.value = report;
+        temporaryField.setAttribute("readonly", "");
+        temporaryField.style.position = "fixed";
+        temporaryField.style.opacity = "0";
+        document.body.appendChild(temporaryField);
+        temporaryField.select();
+        copied = document.execCommand("copy");
+        temporaryField.remove();
+      }
+      if (!copied) throw new Error("A área de transferência não está disponível neste navegador.");
+      setDiagnosticCopyStatus("Diagnóstico copiado. Envie esse texto para análise.");
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
+      setDiagnosticCopyStatus(`Não foi possível copiar: ${message}`);
     }
   }
 
@@ -404,6 +744,7 @@ export default function UploadPage() {
                     event.preventDefault();
                     setIsBookFileDragging(false);
                     if (uploading) return;
+                    recordDiagnostic("FILE_DROP", "Arquivo recebido por arrastar e soltar.", `files=${event.dataTransfer.files?.length ?? 0}`);
                     handleFileChange(event.dataTransfer.files?.[0] ?? null);
                   }}
                   className={`group mt-2 flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 ${
@@ -424,7 +765,7 @@ export default function UploadPage() {
                     )}
                   </span>
                   <span className="max-w-full break-all text-sm font-bold text-slate-100">
-                    {file ? "Arquivo selecionado" : "Escolha um arquivo"}
+                    {file ? file.name : "Escolha um arquivo"}
                   </span>
                   <span className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-violet-400 px-4 py-2 text-sm font-bold text-[#1d1930] transition group-hover:bg-violet-300">
                     {file ? "Trocar arquivo" : "Escolher arquivo"}
@@ -440,6 +781,16 @@ export default function UploadPage() {
                     </span>
                   )}
                 </div>
+                {pickerStatus && (
+                  <p
+                    role="status"
+                    aria-live="polite"
+                    className={`mt-2 flex items-center gap-2 text-sm ${pickerPending ? "text-violet-200" : "text-amber-200"}`}
+                  >
+                    {pickerPending && <LoaderCircle aria-hidden="true" size={16} className="animate-spin" />}
+                    {pickerStatus}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -493,8 +844,9 @@ export default function UploadPage() {
                   className="rounded-2xl border border-violet-300/15 bg-violet-300/[0.05] p-4"
                 >
                   <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                    <p className="font-semibold text-slate-100">
-                      {uploadStage}
+                    <p className="flex min-w-0 items-center gap-2 font-semibold text-slate-100">
+                      {uploadProgress === null ? <LoaderCircle aria-hidden="true" size={16} className="shrink-0 animate-spin text-violet-200" /> : <Check aria-hidden="true" size={16} className="shrink-0 text-violet-200" />}
+                      <span className="truncate">{uploadStage}</span>
                     </p>
                     <p className="tabular-nums text-violet-200">
                       {uploadProgress === null
@@ -528,6 +880,14 @@ export default function UploadPage() {
                       }
                     />
                   </div>
+                  <p className="mt-2 text-xs text-slate-400">
+                    Tempo decorrido: {Math.floor(uploadElapsedSeconds / 60)}m {uploadElapsedSeconds % 60}s
+                    {uploadProgress === null
+                      ? " · aguardando resposta desta etapa"
+                      : uploadStage.toLowerCase().includes("enviando bytes")
+                        ? " · transferência de bytes"
+                        : " · bytes enviados, aguardando confirmação"}
+                  </p>
                 </section>
               )}
 
@@ -587,6 +947,41 @@ export default function UploadPage() {
                 </button>
               </footer>
             </form>
+            <details className="mt-6 rounded-2xl border border-white/10 bg-[#171A27]/45 p-4">
+              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-bold text-slate-200 marker:hidden">
+                <SearchCheck aria-hidden="true" size={18} className="text-violet-200" />
+                Diagnóstico do envio ({diagnostics.length} eventos)
+                <span className="ml-auto text-xs font-medium text-slate-400">
+                  {diagnostics.at(-1)?.code ?? "sem eventos"}
+                </span>
+              </summary>
+              <div className="mt-4 border-t border-white/10 pt-4">
+                <p className="text-xs leading-5 text-slate-400">
+                  O histórico identifica se o bloqueio acontece no seletor do celular, na validação, na capa, na autorização do Storage, na transferência ou ao salvar a obra. Nenhum token ou link assinado é incluído.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void copyUploadDiagnostics()}
+                  className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-violet-300/20 bg-violet-300/10 px-3 py-2 text-sm font-bold text-violet-100 transition hover:bg-violet-300/15"
+                >
+                  {diagnosticCopyStatus.startsWith("Diagnóstico copiado") ? <ClipboardCheck aria-hidden="true" size={16} /> : <Clipboard aria-hidden="true" size={16} />}
+                  Copiar diagnóstico técnico
+                </button>
+                {diagnosticCopyStatus && <p role="status" className="mt-2 text-xs text-slate-300">{diagnosticCopyStatus}</p>}
+                <ol className="mt-4 max-h-64 space-y-2 overflow-auto pr-1">
+                  {diagnostics.slice(-20).map((entry) => (
+                    <li key={`${entry.time}:${entry.code}`} className="rounded-xl bg-white/[0.035] p-3 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-bold text-violet-200">{entry.code}</span>
+                        <time className="text-slate-500">{new Date(entry.time).toLocaleTimeString()}</time>
+                      </div>
+                      <p className="mt-1 text-slate-200">{entry.message}</p>
+                      {entry.details && <p className="mt-1 break-words text-slate-400">{entry.details}</p>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </details>
           </section>
 
           <aside className="relative min-h-[300px] overflow-hidden rounded-3xl border border-violet-200/10 bg-gradient-to-br from-[#322b55] via-[#282442] to-[#1d2030] p-6 shadow-2xl shadow-black/20 sm:min-h-[350px] sm:p-8 lg:sticky lg:top-8 lg:min-h-[560px]">
