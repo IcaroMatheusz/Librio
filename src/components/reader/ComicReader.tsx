@@ -35,6 +35,7 @@ interface ComicReaderProps {
   file: Blob;
   initialProgress: number;
   onProgressChange: (progress: number) => Promise<void>;
+  onStart?: () => void;
   onEnd?: () => void;
 }
 
@@ -72,6 +73,7 @@ export function ComicReader({
   file,
   initialProgress,
   onProgressChange,
+  onStart,
   onEnd,
 }: ComicReaderProps) {
   const readerRef = useRef<HTMLElement>(null);
@@ -164,6 +166,10 @@ export function ComicReader({
 
   const changePage = useCallback(
     (delta: number) => {
+      if (delta < 0 && pageIndex <= 0) {
+        onStart?.();
+        return;
+      }
       if (delta > 0 && pageIndex >= pages.length - 1) {
         onEnd?.();
         return;
@@ -184,7 +190,7 @@ export function ComicReader({
         });
       }
     },
-    [onEnd, pageIndex, pages.length, readingMode],
+    [onEnd, onStart, pageIndex, pages.length, readingMode],
   );
 
   useEffect(() => {
@@ -417,7 +423,7 @@ export function ComicReader({
           <button
             type="button"
             onClick={() => changePage(-1)}
-            disabled={pageIndex === 0}
+            disabled={pageIndex === 0 && !onStart}
             aria-label="Página anterior"
             className={`inline-flex size-10 items-center justify-center rounded-xl transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
               theme === "night"
@@ -503,7 +509,7 @@ export function ComicReader({
         <button
           type="button"
           onClick={() => changePage(-1)}
-          disabled={pageIndex === 0}
+          disabled={pageIndex === 0 && !onStart}
           aria-label="Página anterior"
           className={`absolute left-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:left-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
             theme === "night"

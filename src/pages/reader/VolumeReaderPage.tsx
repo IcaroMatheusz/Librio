@@ -148,14 +148,17 @@ export default function VolumeReaderPage() {
     [chapterIndex, volume],
   );
 
-  function selectChapter(nextIndex: number) {
+  function selectChapter(nextIndex: number, startAtEnd = false) {
     if (!volume) return;
     const boundedIndex = Math.max(
       0,
       Math.min(volume.chapters.length - 1, nextIndex),
     );
     if (boundedIndex === chapterIndex) return;
-    setSavedProgress({ chapterNumber: boundedIndex + 1, progress: 0 });
+    setSavedProgress({
+      chapterNumber: boundedIndex + 1,
+      progress: startAtEnd ? 100 : 0,
+    });
     setChapterIndex(boundedIndex);
   }
 
@@ -269,6 +272,11 @@ export default function VolumeReaderPage() {
                     : 0
                 }
                 onProgressChange={saveProgress}
+                onStart={
+                  chapterIndex > 0
+                    ? () => selectChapter(chapterIndex - 1, true)
+                    : undefined
+                }
                 onEnd={
                   chapterIndex < (volume?.chapters.length ?? 0) - 1
                     ? () => changeChapter(1)
@@ -286,6 +294,11 @@ export default function VolumeReaderPage() {
                     : 0
                 }
                 onProgressChange={saveProgress}
+                onStart={
+                  chapterIndex > 0
+                    ? () => selectChapter(chapterIndex - 1, true)
+                    : undefined
+                }
                 onEnd={
                   chapterIndex < (volume?.chapters.length ?? 0) - 1
                     ? () => changeChapter(1)
