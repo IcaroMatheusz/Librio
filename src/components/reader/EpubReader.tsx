@@ -141,20 +141,34 @@ const CONTENT_THEME_CLASSES: Record<
   },
 };
 
+function containsImage(node: EpubContentNode): boolean {
+  return node.type === "img" || (node.children ?? []).some(containsImage);
+}
+
+function containsText(node: EpubContentNode): boolean {
+  return Boolean(node.text?.trim()) || (node.children ?? []).some(containsText);
+}
+
 function renderContent(
   nodes: EpubContentNode[],
   theme: ReaderTheme,
   parentKey = "content",
+  imagePageLayout = true,
 ): ReactNode {
   return nodes.map((node, index) => {
     const key = `${parentKey}-${index}`;
+    const isImagePage =
+      imagePageLayout &&
+      node.type === "p" &&
+      containsImage(node) &&
+      !containsText(node);
     if (node.type === "img") {
       return node.src
         ? createElement("img", {
             key,
             src: node.src,
             alt: node.alt ?? "",
-            className: `${CONTENT_CLASSES.img} ${
+            className: `${CONTENT_CLASSES.img} transition-transform duration-300 ${
               theme === "light" ? "rounded-none sm:rounded-lg" : ""
             }`,
           })
@@ -170,10 +184,14 @@ function renderContent(
       {
         key,
         className: `${CONTENT_CLASSES[node.type] ?? ""} ${
+          isImagePage
+            ? "my-0 flex h-full break-inside-avoid-column items-center justify-center"
+            : ""
+        } ${
           CONTENT_THEME_CLASSES[theme][node.type] ?? ""
         }`,
       },
-      node.text ?? renderContent(node.children ?? [], theme, key),
+      node.text ?? renderContent(node.children ?? [], theme, key, imagePageLayout),
     );
   });
 }
@@ -324,6 +342,11 @@ export function EpubReader({
   }, [book, readingMode]);
 
   useEffect(() => {
+    pendingOffsetRef.current = chapterProgressRef.current;
+    restoreContentRef.current = true;
+  }, [fontSize]);
+
+  useEffect(() => {
     const content = contentRef.current;
     if (!book || !content || !restoreContentRef.current) return;
 
@@ -357,7 +380,7 @@ export function EpubReader({
       }
       handleScroll();
     });
-  }, [book, chapterIndex, handleScroll, readingMode]);
+  }, [book, chapterIndex, fontSize, handleScroll, readingMode]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -380,10 +403,7 @@ export function EpubReader({
   const currentProgress = book
     ? Math.min(
         100,
-        Math.max(
-          1,
           Math.round(((chapterIndex + chapterProgress) / book.chapters.length) * 100),
-        ),
       )
     : 0;
 
@@ -705,7 +725,14 @@ export function EpubReader({
           ref={contentRef}
           onScroll={handleScroll}
           onClick={handlePageClick}
-          className={`min-h-0 min-w-0 rounded-xl px-4 py-4 sm:px-8 sm:py-8 lg:px-14 ${
+          role="region"
+          tabIndex={0}
+          aria-label={
+            readingMode === "page"
+              ? `Leitura: ${currentChapter.title}`
+              : "Leitura contínua do EPUB"
+          }
+          className={`epub-page-viewport min-h-0 min-w-0 rounded-xl px-4 py-4 transition-colors duration-300 focus-visible:outline-2 focus-visible:outline-violet-500 sm:px-8 sm:py-8 lg:px-14 ${
             readingMode === "page"
               ? "overflow-x-auto overflow-y-hidden"
               : "overflow-y-auto"
@@ -749,7 +776,7 @@ export function EpubReader({
                       {chapter.title}
                     </h2>
                   )}
-                  {renderContent(chapter.content, theme, chapter.id)}
+                  {renderContent(chapter.content, theme, chapter.id, false)}
                 </article>
               ))}
             </div>
@@ -780,12 +807,29 @@ export function EpubReader({
       </div>
 
       <footer
-        className={`flex min-h-11 items-center justify-between gap-3 border-t px-3 text-xs sm:px-4 ${
+        className={`relative flex min-h-11 items-center justify-between gap-3 border-t px-3 text-xs sm:px-4 ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/70 text-slate-400"
             : "border-stone-300 bg-[#f2eadc] text-stone-600"
         }`}
       >
+        <div
+          role="progressbar"
+          aria-label="Progresso de leitura do EPUB"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={currentProgress}
+          className={`absolute inset-x-0 top-0 h-0.5 ${
+            theme === "night" ? "bg-white/10" : "bg-stone-300"
+          }`}
+        >
+          <span
+            className={`block h-full transition-[width] duration-300 ${
+              theme === "night" ? "bg-violet-300" : "bg-violet-700"
+            }`}
+            style={{ width: `${currentProgress}%` }}
+          />
+        </div>
         <span
           className={`inline-flex shrink-0 items-center gap-1.5 font-semibold ${
             theme === "night" ? "text-violet-100" : "text-violet-800"

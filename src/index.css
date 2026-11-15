@@ -16,6 +16,35 @@ body {
   margin: 0;
 }
 
+.epub-page-viewport {
+  scrollbar-width: none;
+}
+
+.epub-page-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.chapter-menu-enter {
+  animation: chapter-menu-enter 150ms ease-out both;
+}
+
+@keyframes chapter-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chapter-menu-enter {
+    animation: none;
+  }
+}
+
 @keyframes character-enter {
   from {
     opacity: 0;

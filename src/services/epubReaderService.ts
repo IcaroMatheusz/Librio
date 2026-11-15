@@ -161,6 +161,57 @@ function safeTitle(content: string, fallback: string): string {
   return title.slice(0, 180) || fallback;
 }
 
+async function getNavigationTitles(
+  entries: Map<string, FileEntry>,
+  manifest: Map<string, { path: string; mediaType: string; properties: string }>,
+  spine: Element,
+): Promise<Map<string, string>> {
+  const titles = new Map<string, string>();
+  const tocId = spine.getAttribute("toc");
+  const ncx = tocId ? manifest.get(tocId) : undefined;
+  const nav = [...manifest.values()].find((item) =>
+    item.properties.split(/\s+/).includes("nav"),
+  );
+  const source = ncx ?? nav;
+  const entry = source ? entries.get(source.path) : undefined;
+  if (!source || !entry) return titles;
+
+  const markup = await readEntryText(entry);
+  const document = new DOMParser().parseFromString(markup, "application/xml");
+  if (document.querySelector("parsererror")) return titles;
+
+  const addTitle = (href: string | null, label: string | null) => {
+    if (!href || !label?.trim()) return;
+    const path = resolveArchivePath(
+      source.path.split("/").slice(0, -1).join("/"),
+      href,
+    );
+    if (path && !titles.has(path)) titles.set(path, safeTitle(label, ""));
+  };
+
+  if (ncx) {
+    for (const point of Array.from(document.getElementsByTagNameNS("*", "navPoint"))) {
+      addTitle(
+        point.getElementsByTagNameNS("*", "content")[0]?.getAttribute("src") ?? null,
+        point.getElementsByTagNameNS("*", "text")[0]?.textContent ?? null,
+      );
+    }
+  } else {
+    const toc = Array.from(document.getElementsByTagNameNS("*", "nav")).find(
+      (element) =>
+        /(^|\s)toc(\s|$)/i.test(
+          element.getAttributeNS("http://www.idpf.org/2007/ops", "type") ??
+            element.getAttribute("epub:type") ??
+            "",
+        ),
+    );
+    for (const link of Array.from(toc?.getElementsByTagNameNS("*", "a") ?? [])) {
+      addTitle(link.getAttribute("href"), link.textContent);
+    }
+  }
+  return titles;
+}
+
 function isOutlineDocument(root: Element, headingText: string): boolean {
   const links = root.querySelectorAll("a");
   if (links.length < 3) return false;
@@ -384,6 +435,11 @@ export async function extractEpub(
       throw new Error("Este EPUB não possui capítulos compatíveis para leitura.");
     }
 
+    const navigationTitles = await getNavigationTitles(
+      entries,
+      manifest,
+      spineElement,
+    );
     const imageUrlsByPath = new Map<string, string>();
     const chapters: EpubChapter[] = [];
     const packageTitle =
@@ -405,10 +461,14 @@ export async function extractEpub(
       const contentRoot =
         contentDocument.body ?? contentDocument.documentElement;
       const heading = contentRoot.querySelector("h1, h2, h3, title");
-      const headingText = heading?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+      let headingText = heading?.textContent?.replace(/\s+/g, " ").trim() ?? "";
       if (isOutlineDocument(contentRoot, headingText)) {
         onProgress?.(index + 1, spineItems.length);
         continue;
+      }
+      const navigationTitle = navigationTitles.get(item.path);
+      if (navigationTitle && /^(index|untitled)$/i.test(headingText)) {
+        headingText = navigationTitle;
       }
       const generatedTitle =
         item.path.split("/").pop()?.replace(/\.[^.]+$/, "") ??

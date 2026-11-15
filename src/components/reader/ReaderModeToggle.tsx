@@ -65,7 +65,7 @@ export function ReaderModeToggle({
         }`}
       >
         <ArrowDown aria-hidden="true" size={15} />
-        Manhwa
+        Rolagem
       </button>
     </div>
   );
