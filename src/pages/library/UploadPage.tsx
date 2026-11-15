@@ -42,7 +42,7 @@ import {
 } from "../../services/coverPreviewService";
 
 const inputClass =
-  "mt-2 w-full rounded-xl border border-white/10 bg-[#171A27] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-violet-300 focus:ring-4 focus:ring-violet-300/10 disabled:cursor-not-allowed disabled:opacity-60";
+  "mt-2 w-full min-w-0 max-w-full rounded-xl border border-white/10 bg-[#171A27] px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-violet-300 focus:ring-4 focus:ring-violet-300/10 disabled:cursor-not-allowed disabled:opacity-60";
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 
@@ -721,7 +721,7 @@ export default function UploadPage() {
         </nav>
       </header>
 
-      <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-8 sm:px-8 sm:pt-10 lg:px-12 lg:pt-12">
+      <div className="relative mx-auto w-full min-w-0 max-w-6xl px-4 pb-12 pt-8 sm:px-8 sm:pt-10 lg:px-12 lg:pt-12">
         <header className="mb-8 max-w-2xl">
           <p className="inline-flex items-center gap-2 rounded-full border border-violet-300/15 bg-violet-300/[0.07] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-violet-200">
             <Sparkles aria-hidden="true" size={14} />
@@ -737,8 +737,8 @@ export default function UploadPage() {
           </p>
         </header>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] lg:gap-8">
-          <section className="rounded-3xl border border-white/[0.09] bg-[#202435]/90 p-5 shadow-2xl shadow-black/20 sm:p-7 lg:p-8">
+        <div className="grid w-full min-w-0 items-start gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)] lg:gap-8">
+          <section className="w-full min-w-0 rounded-3xl border border-white/[0.09] bg-[#202435]/90 p-5 shadow-2xl shadow-black/20 sm:p-7 lg:p-8">
             <header className="mb-6">
               <h2 className="text-lg font-bold text-white">Adicionar uma obra</h2>
               <p className="mt-1 text-sm text-slate-400">
@@ -748,7 +748,7 @@ export default function UploadPage() {
             <form
               noValidate
               onSubmit={handleSubmit}
-              className="space-y-5"
+              className="w-full min-w-0 space-y-5"
             >
               <div>
                 <label
@@ -790,7 +790,7 @@ export default function UploadPage() {
                     recordDiagnostic("FILE_DROP", "Arquivo recebido por arrastar e soltar.", `files=${event.dataTransfer.files?.length ?? 0}`);
                     handleFileChange(event.dataTransfer.files?.[0] ?? null);
                   }}
-                  className={`group mt-2 flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 ${
+                  className={`group mt-2 flex min-h-36 w-full min-w-0 flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 ${
                     uploading
                       ? "cursor-not-allowed opacity-60"
                       : isBookFileDragging
@@ -884,14 +884,14 @@ export default function UploadPage() {
                 <section
                   aria-label="Progresso do envio"
                   aria-live="polite"
-                  className="rounded-2xl border border-violet-300/15 bg-violet-300/[0.05] p-4"
+                  className="w-full min-w-0 max-w-full rounded-2xl border border-violet-300/15 bg-violet-300/[0.05] p-4"
                 >
                   <div className="mb-2 flex items-center justify-between gap-3 text-sm">
                     <p className="flex min-w-0 items-center gap-2 font-semibold text-slate-100">
                       {uploadProgress === null ? <LoaderCircle aria-hidden="true" size={16} className="shrink-0 animate-spin text-violet-200" /> : <Check aria-hidden="true" size={16} className="shrink-0 text-violet-200" />}
                       <span className="truncate">{uploadStage}</span>
                     </p>
-                    <p className="tabular-nums text-violet-200">
+                    <p className="shrink-0 tabular-nums text-violet-200">
                       {uploadProgress === null
                         ? "Aguardando envio…"
                         : `${uploadProgress}%`}
@@ -990,11 +990,11 @@ export default function UploadPage() {
                 </button>
               </footer>
             </form>
-            <details className="mt-6 rounded-2xl border border-white/10 bg-[#171A27]/45 p-4">
-              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-bold text-slate-200 marker:hidden">
+            <details className="mt-6 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/10 bg-[#171A27]/45 p-4">
+              <summary className="flex min-w-0 max-w-full cursor-pointer list-none flex-wrap items-center gap-2 text-sm font-bold text-slate-200 marker:hidden">
                 <SearchCheck aria-hidden="true" size={18} className="text-violet-200" />
-                Diagnóstico do envio ({diagnostics.length} eventos)
-                <span className="ml-auto text-xs font-medium text-slate-400">
+                <span className="min-w-0 flex-1 break-words">Diagnóstico do envio ({diagnostics.length} eventos)</span>
+                <span className="ml-auto min-w-0 max-w-[45%] truncate whitespace-nowrap text-xs font-medium text-slate-400">
                   {diagnostics.at(-1)?.code ?? "sem eventos"}
                 </span>
               </summary>
