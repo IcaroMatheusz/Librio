@@ -344,7 +344,7 @@ export default function UploadPage() {
                     disabled={uploading}
                     aria-label="Selecionar arquivo da obra"
                     onChange={handleFileChange}
-                    className="mt-3 block w-full max-w-full cursor-pointer text-left text-xs text-slate-300 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-violet-400 file:px-3 file:py-2 file:text-xs file:font-bold file:text-[#1d1930] hover:file:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 disabled:cursor-not-allowed"
+                    className="mx-auto mt-3 block w-fit max-w-full cursor-pointer text-center text-xs text-slate-300 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-violet-400 file:px-3 file:py-2 file:text-xs file:font-bold file:text-[#1d1930] hover:file:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 disabled:cursor-not-allowed"
                   />
                   <span className="mt-2 text-xs text-slate-400">
                     {file
