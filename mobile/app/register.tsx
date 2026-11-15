@@ -1,0 +1,11 @@
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { router } from 'expo-router';
+import { requireSupabase } from '../src/lib/supabase';
+
+export default function Register() {
+  const [username,setUsername]=useState(''); const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [message,setMessage]=useState(''); const [busy,setBusy]=useState(false);
+  async function submit() { setBusy(true); setMessage(''); try { const { error }=await requireSupabase().auth.signUp({email:email.trim().toLowerCase(),password,options:{data:{username:username.trim()}}}); if(error) throw error; setMessage('Conta criada. Confira seu e-mail para confirmar o cadastro.'); } catch(e) {setMessage(e instanceof Error?e.message:'Não foi possível criar a conta.');} finally {setBusy(false);} }
+  return <View style={s.screen}><Pressable onPress={()=>router.back()}><Text style={s.link}>‹ Voltar</Text></Pressable><Text style={s.title}>Criar conta</Text>{[['Nome','username',username,setUsername],['E-mail','email',email,setEmail],['Senha','password',password,setPassword]].map(([label,key,value,setter])=><View key={String(key)}><Text style={s.label}>{String(label)}</Text><TextInput style={s.input} value={String(value)} onChangeText={setter as (v:string)=>void} autoCapitalize={key==='email'?'none':'words'} secureTextEntry={key==='password'} keyboardType={key==='email'?'email-address':'default'} /></View>)}<Pressable style={s.button} onPress={()=>void submit()} disabled={busy}><Text style={s.buttonText}>{busy?'Criando…':'Criar conta'}</Text></Pressable>{!!message&&<Text style={s.message}>{message}</Text>}</View>;
+}
+const s=StyleSheet.create({screen:{flex:1,justifyContent:'center',padding:26,backgroundColor:'#171a27'},title:{color:'#fff',fontSize:30,fontWeight:'800',marginVertical:24},label:{color:'#e5e7ef',marginBottom:8,marginTop:14},input:{backgroundColor:'#242839',borderColor:'#3a4055',borderWidth:1,borderRadius:12,padding:15,color:'#fff'},button:{marginTop:24,backgroundColor:'#b8a4f5',padding:16,borderRadius:12,alignItems:'center'},buttonText:{fontWeight:'800',color:'#211b33'},link:{color:'#d1c4ff'},message:{color:'#e3dcff',marginTop:16,lineHeight:22}});

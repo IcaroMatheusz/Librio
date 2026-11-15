@@ -232,3 +232,28 @@ diretamente do código-fonte não instala atualizações.
 O workflow atual publica o instalador **Windows**. Embora o electron-builder
 tenha configuração para macOS e Linux, essas plataformas ainda não são
 compiladas por esse workflow.
+
+## Aplicativo móvel (React Native)
+
+O projeto React Native fica em `mobile/`, separado do frontend web e do
+Electron. Ele usa Expo, Expo Router e a mesma instância Supabase. Para iniciar:
+
+```powershell
+cd mobile
+npm install
+Copy-Item .env.example .env
+```
+
+Preencha `EXPO_PUBLIC_SUPABASE_URL` e `EXPO_PUBLIC_SUPABASE_ANON_KEY` no
+arquivo `mobile/.env` e inicie com `npm run start`. Use a chave pública `anon`;
+nunca configure `service_role` no aplicativo.
+
+A base móvel inclui cadastro, login, recuperação de senha, sessão persistente,
+listagem e envio de arquivos para a biblioteca cloud e catálogo de arquivos
+locais escolhidos em uma pasta no Android. O acesso à nuvem depende das mesmas
+tabelas, buckets e políticas RLS descritos acima. O leitor móvel nesta etapa
+abre PDFs; os leitores EPUB e CBR/CBZ, sincronização visual de progresso,
+volumes, perfil, capas e edição completa da biblioteca ainda precisam ser
+portados para componentes nativos. No iOS, o seletor padrão permite escolher
+arquivos, mas não concede varredura genérica de diretórios como o SAF do
+Android.
