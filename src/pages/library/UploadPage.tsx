@@ -419,11 +419,10 @@ export default function UploadPage() {
                 <input
                   id="book-author"
                   type="text"
-                  required
                   maxLength={160}
                   disabled={uploading}
                   value={author}
-                  placeholder="Nome do autor"
+                  placeholder="Nome do autor (opcional)"
                   onChange={(event) => setAuthor(event.target.value)}
                   className={inputClass}
                 />

@@ -17,6 +17,7 @@ import {
   deleteBook,
   getBooks,
   renameBook,
+  updateBookAuthor,
   uploadBookCover,
 } from "../../services/booksService";
 import {
@@ -61,6 +62,7 @@ export default function LibraryPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [dialog, setDialog] = useState<BookActionDialogState | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
+  const [authorDraft, setAuthorDraft] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<LibraryNoticeData | null>(
     null,
@@ -280,6 +282,7 @@ export default function LibraryPage() {
   function openDialog(type: BookActionDialogState["type"], book: Book) {
     setDialog({ type, book });
     setTitleDraft(book.title);
+    setAuthorDraft(book.author);
     setActionError(null);
     setActionNotice(null);
   }
@@ -305,6 +308,33 @@ export default function LibraryPage() {
         caughtError instanceof Error
           ? caughtError.message
           : "Não foi possível renomear a obra.",
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function handleUpdateAuthor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!dialog || dialog.type !== "author") return;
+
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const updatedBook = await updateBookAuthor(dialog.book.id, authorDraft);
+      setBooks((currentBooks) =>
+        currentBooks.map((book) =>
+          book.id === updatedBook.id
+            ? { ...book, author: updatedBook.author }
+            : book,
+        ),
+      );
+      setDialog(null);
+    } catch (caughtError) {
+      setActionError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível atualizar o autor da obra.",
       );
     } finally {
       setActionBusy(false);
@@ -450,6 +480,7 @@ export default function LibraryPage() {
             coverBusyId={coverBusyId}
             onRetry={() => setReloadKey((key) => key + 1)}
             onRename={(book) => openDialog("rename", book)}
+            onEditAuthor={(book) => openDialog("author", book)}
             onDelete={(book) => openDialog("delete", book)}
             onCoverSelect={(book, file) =>
               void handleCoverSelect(book, file)
@@ -462,10 +493,13 @@ export default function LibraryPage() {
         <BookActionDialog
           dialog={dialog}
           titleDraft={titleDraft}
+          authorDraft={authorDraft}
           actionError={actionError}
           actionBusy={actionBusy}
           onTitleChange={(event) => setTitleDraft(event.target.value)}
+          onAuthorChange={(event) => setAuthorDraft(event.target.value)}
           onRename={handleRename}
+          onUpdateAuthor={handleUpdateAuthor}
           onDelete={() => void handleDelete()}
           onClose={() => setDialog(null)}
         />

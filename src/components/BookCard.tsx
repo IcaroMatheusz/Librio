@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { BookOpen, ImagePlus, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { BookOpen, ImagePlus, Pencil, Trash2, UserRoundPen } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { Book } from "../types/database";
@@ -13,6 +14,7 @@ interface BookCardProps {
   to?: string;
   returnTo?: "/dashboard" | "/library";
   onRename?: () => void;
+  onEditAuthor?: () => void;
   onDelete?: () => void;
   onRemoveLocal?: () => void;
   localRemoveDisabled?: boolean;
@@ -30,6 +32,7 @@ export function BookCard({
   to,
   returnTo,
   onRename,
+  onEditAuthor,
   onDelete,
   onRemoveLocal,
   localRemoveDisabled = false,
@@ -38,9 +41,22 @@ export function BookCard({
   coverDisabled = false,
 }: BookCardProps) {
   const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const coverFailed = Boolean(
     book.cover_url && failedCoverUrl === book.cover_url,
   );
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setContextMenu(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [contextMenu]);
 
   const content = (
     <>
@@ -98,7 +114,7 @@ export function BookCard({
           className="mt-1 truncate text-xs text-slate-400 sm:text-sm"
           title={book.author}
         >
-          {book.author}
+          {book.author || "Autor desconhecido"}
         </p>
         {statusMessage && (
           <p role="status" className="mt-2 text-xs leading-5 text-amber-200">
@@ -131,7 +147,20 @@ export function BookCard({
   );
 
   return (
-    <article className="group min-w-0 overflow-hidden rounded-2xl border border-white/[0.09] bg-[#202435] shadow-lg shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-violet-300/30 hover:shadow-xl hover:shadow-violet-950/20">
+    <article
+      className="group min-w-0 overflow-hidden rounded-2xl border border-white/[0.09] bg-[#202435] shadow-lg shadow-black/10 transition duration-300 hover:-translate-y-1 hover:border-violet-300/30 hover:shadow-xl hover:shadow-violet-950/20"
+      onContextMenu={
+        onEditAuthor
+          ? (event) => {
+              event.preventDefault();
+              setContextMenu({
+                x: Math.min(event.clientX, window.innerWidth - 200),
+                y: Math.min(event.clientY, window.innerHeight - 52),
+              });
+            }
+          : undefined
+      }
+    >
       {to ? (
         <Link
           to={to}
@@ -199,6 +228,32 @@ export function BookCard({
           </button>
         </footer>
       )}
+      {contextMenu &&
+        onEditAuthor &&
+        createPortal(
+          <>
+            <button
+              type="button"
+              aria-label="Fechar menu de contexto"
+              className="fixed inset-0 z-40 cursor-default"
+              onClick={() => setContextMenu(null)}
+            />
+            <button
+              type="button"
+              role="menuitem"
+              className="fixed z-50 inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-[#222638] px-4 py-2 text-sm font-semibold text-slate-100 shadow-xl shadow-black/40 transition hover:bg-violet-300/10 hover:text-violet-100 focus-visible:outline-2 focus-visible:outline-violet-200"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              onClick={() => {
+                setContextMenu(null);
+                onEditAuthor();
+              }}
+            >
+              <UserRoundPen aria-hidden="true" size={16} />
+              Editar autor
+            </button>
+          </>,
+          document.body,
+        )}
     </article>
   );
 }

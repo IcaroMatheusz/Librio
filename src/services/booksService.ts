@@ -225,6 +225,29 @@ export async function renameBook(bookId: string, title: string): Promise<Book> {
   return data;
 }
 
+export async function updateBookAuthor(
+  bookId: string,
+  author: string,
+): Promise<Book> {
+  const normalizedAuthor = author.trim();
+  if (normalizedAuthor.length > 160) {
+    throw new Error("O nome do autor deve ter no máximo 160 caracteres.");
+  }
+
+  const client = await getSupabaseClient();
+  const { data, error } = await client
+    .from("books")
+    .update({ author: normalizedAuthor || "Autor desconhecido" })
+    .eq("id", bookId)
+    .select(BOOK_FIELDS)
+    .single();
+
+  if (error) {
+    throw new Error(`Não foi possível atualizar o autor da obra: ${error.message}`);
+  }
+  return data;
+}
+
 export async function deleteBook(book: Book): Promise<string | null> {
   const client = await getSupabaseClient();
   const storage = await getUserStorage();
@@ -741,7 +764,7 @@ export async function uploadBook(
       id: bookId,
       user_id: userId,
       title: title.trim(),
-      author: author.trim(),
+      author: author.trim() || "Autor desconhecido",
       file_path: filePath,
       cover_url: savedCoverPath,
       file_type: fileType,

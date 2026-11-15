@@ -4,17 +4,20 @@ import type { ChangeEventHandler, FormEventHandler } from "react";
 import type { Book } from "../../types/database";
 
 export interface BookActionDialogState {
-  type: "rename" | "delete";
+  type: "rename" | "author" | "delete";
   book: Book;
 }
 
 interface BookActionDialogProps {
   dialog: BookActionDialogState;
   titleDraft: string;
+  authorDraft: string;
   actionError: string | null;
   actionBusy: boolean;
   onTitleChange: ChangeEventHandler<HTMLInputElement>;
   onRename: FormEventHandler<HTMLFormElement>;
+  onAuthorChange: ChangeEventHandler<HTMLInputElement>;
+  onUpdateAuthor: FormEventHandler<HTMLFormElement>;
   onDelete: () => void;
   onClose: () => void;
 }
@@ -22,10 +25,13 @@ interface BookActionDialogProps {
 export function BookActionDialog({
   dialog,
   titleDraft,
+  authorDraft,
   actionError,
   actionBusy,
   onTitleChange,
   onRename,
+  onAuthorChange,
+  onUpdateAuthor,
   onDelete,
   onClose,
 }: BookActionDialogProps) {
@@ -52,8 +58,8 @@ export function BookActionDialog({
           <X aria-hidden="true" size={18} />
         </button>
 
-        {dialog.type === "rename" ? (
-          <form onSubmit={onRename}>
+        {dialog.type !== "delete" ? (
+          <form onSubmit={dialog.type === "rename" ? onRename : onUpdateAuthor}>
             <span className="inline-flex size-12 items-center justify-center rounded-2xl bg-violet-300/10 text-violet-200">
               <Pencil aria-hidden="true" size={22} />
             </span>
@@ -61,22 +67,22 @@ export function BookActionDialog({
               id="book-action-title"
               className="mt-4 text-xl font-bold text-white"
             >
-              Renomear obra
+              {dialog.type === "rename" ? "Renomear obra" : "Editar autor"}
             </h2>
             <label
-              htmlFor="book-new-title"
+              htmlFor={dialog.type === "rename" ? "book-new-title" : "book-new-author"}
               className="mt-5 block text-sm font-semibold text-slate-200"
             >
-              Novo título
+              {dialog.type === "rename" ? "Novo título" : "Autor"}
             </label>
             <input
-              id="book-new-title"
+              id={dialog.type === "rename" ? "book-new-title" : "book-new-author"}
               autoFocus
-              required
-              maxLength={200}
+              required={dialog.type === "rename"}
+              maxLength={dialog.type === "rename" ? 200 : 160}
               disabled={actionBusy}
-              value={titleDraft}
-              onChange={onTitleChange}
+              value={dialog.type === "rename" ? titleDraft : authorDraft}
+              onChange={dialog.type === "rename" ? onTitleChange : onAuthorChange}
               className="mt-2 w-full rounded-xl border border-white/10 bg-[#171A27] px-4 py-3 text-white outline-none transition focus:border-violet-300 focus:ring-4 focus:ring-violet-300/10 disabled:opacity-60"
             />
             {actionError && (
@@ -95,11 +101,18 @@ export function BookActionDialog({
               </button>
               <button
                 type="submit"
-                disabled={actionBusy || !titleDraft.trim()}
+                disabled={
+                  actionBusy ||
+                  (dialog.type === "rename" && !titleDraft.trim())
+                }
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-400 px-5 py-3 text-sm font-bold text-[#1d1930] transition hover:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white disabled:cursor-wait disabled:opacity-60"
               >
                 <Check aria-hidden="true" size={17} />
-                {actionBusy ? "Salvando..." : "Salvar título"}
+                {actionBusy
+                  ? "Salvando..."
+                  : dialog.type === "rename"
+                    ? "Salvar título"
+                    : "Salvar autor"}
               </button>
             </footer>
           </form>

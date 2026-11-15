@@ -11,6 +11,7 @@ interface LibraryBooksContentProps {
   coverBusyId: string | null;
   onRetry: () => void;
   onRename: (book: Book) => void;
+  onEditAuthor: (book: Book) => void;
   onDelete: (book: Book) => void;
   onCoverSelect: (book: Book, file: File) => void;
 }
@@ -92,6 +93,7 @@ export function LibraryBooksContent({
   coverBusyId,
   onRetry,
   onRename,
+  onEditAuthor,
   onDelete,
   onCoverSelect,
 }: LibraryBooksContentProps) {
@@ -109,6 +111,7 @@ export function LibraryBooksContent({
           to={`/reader/${book.id}`}
           returnTo="/library"
           onRename={() => onRename(book)}
+          onEditAuthor={() => onEditAuthor(book)}
           onDelete={() => onDelete(book)}
           onCoverSelect={(file) => onCoverSelect(book, file)}
           coverBusy={coverBusyId === book.id}
