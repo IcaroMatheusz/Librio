@@ -26,7 +26,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish Windows installer
-        run: npm run electron:dist -- --win --publish always
+      - name: Build Windows installer
+        run: npm run electron:dist -- --win --publish never
+
+      - name: Publish installer to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            release/*.exe
+          fail_on_unmatched_files: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
