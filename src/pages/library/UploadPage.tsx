@@ -69,8 +69,7 @@ export default function UploadPage() {
     return () => URL.revokeObjectURL(manualCoverUrl);
   }, [manualCoverUrl]);
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const selectedFile = event.target.files?.[0] ?? null;
+  function handleFileChange(selectedFile: File | null) {
     if (!selectedFile) {
       setResult({
         type: "error",
@@ -109,6 +108,20 @@ export default function UploadPage() {
       currentTitle || selectedFile.name.replace(/\.[^.]+$/, ""),
     );
   }
+
+  useEffect(() => {
+    const input = bookFileInputRef.current;
+    if (!input) return;
+
+    // Android file pickers can dispatch `change` after detaching the input
+    // from React's event root. A native listener on the input still receives it.
+    const handleNativeFileChange = () => {
+      handleFileChange(input.files?.[0] ?? null);
+    };
+
+    input.addEventListener("change", handleNativeFileChange);
+    return () => input.removeEventListener("change", handleNativeFileChange);
+  });
 
   function handleManualCoverChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedCover = event.target.files?.[0] ?? null;
@@ -343,7 +356,6 @@ export default function UploadPage() {
                     required
                     disabled={uploading}
                     aria-label="Selecionar arquivo da obra"
-                    onChange={handleFileChange}
                     className="mx-auto mt-3 block w-fit max-w-full cursor-pointer text-center text-xs text-slate-300 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-violet-400 file:px-3 file:py-2 file:text-xs file:font-bold file:text-[#1d1930] hover:file:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 disabled:cursor-not-allowed"
                   />
                   <span className="mt-2 text-xs text-slate-400">
