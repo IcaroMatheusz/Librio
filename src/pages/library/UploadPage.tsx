@@ -11,13 +11,10 @@ import {
   BookOpen,
   BookUp,
   Check,
-  Clipboard,
-  ClipboardCheck,
   FileArchive,
   FileText,
   ImagePlus,
   LoaderCircle,
-  SearchCheck,
   Sparkles,
   Upload,
 } from "lucide-react";
@@ -119,19 +116,16 @@ export default function UploadPage() {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [manualCoverFile, setManualCoverFile] = useState<File | null>(null);
   const [manualCoverUrl, setManualCoverUrl] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<UploadDiagnostic[]>(readUploadDiagnostics);
-  const diagnosticsRef = useRef(diagnostics);
+  const diagnosticsRef = useRef<UploadDiagnostic[]>(readUploadDiagnostics());
   const [pickerPending, setPickerPending] = useState(isNativeBookPickerPending);
   const [pickerStatus, setPickerStatus] = useState(() =>
     isNativeBookPickerPending() ? "Retomando o seletor de arquivos do dispositivo…" : "",
   );
-  const [diagnosticCopyStatus, setDiagnosticCopyStatus] = useState("");
 
   const recordDiagnostic = useCallback((code: string, message: string, details?: string) => {
     const entry = { time: new Date().toISOString(), code, message, details };
     const next = [...diagnosticsRef.current, entry].slice(-MAX_UPLOAD_DIAGNOSTICS);
     diagnosticsRef.current = next;
-    setDiagnostics(next);
     try {
       sessionStorage.setItem(UPLOAD_DIAGNOSTICS_KEY, JSON.stringify(next));
     } catch {
@@ -647,58 +641,6 @@ export default function UploadPage() {
     }
   }
 
-  async function copyUploadDiagnostics() {
-    const browser = navigator as Navigator & {
-      connection?: { effectiveType?: string; downlink?: number };
-      userAgentData?: { platform?: string };
-    };
-    const report = [
-      "Librio · diagnóstico de upload",
-      `Gerado: ${new Date().toISOString()}`,
-      `Página: ${location.origin}${location.pathname}`,
-      `Navegador: ${navigator.userAgent}`,
-      `Plataforma: ${browser.userAgentData?.platform ?? navigator.platform}`,
-      `Conexão: online=${navigator.onLine}; tipo=${browser.connection?.effectiveType ?? "indisponível"}; downlink=${browser.connection?.downlink ?? "indisponível"} Mbps`,
-      `Tela: ${window.innerWidth}x${window.innerHeight}; DPR=${window.devicePixelRatio}; visibility=${document.visibilityState}`,
-      `Sessão autenticada: ${Boolean(user)}`,
-      `Arquivo atual: ${file ? getFileDiagnostic(file) : "nenhum"}`,
-      `Etapa atual: ${currentStageRef.current}`,
-      "Eventos recentes (mais antigos primeiro):",
-      ...diagnostics.map((entry) =>
-        `[${entry.time}] ${entry.code}: ${entry.message}${entry.details ? ` · ${entry.details}` : ""}`,
-      ),
-      "Tokens, URLs assinadas e conteúdo dos arquivos não são incluídos.",
-    ].join("\n");
-
-    try {
-      let copied = false;
-      if (navigator.clipboard?.writeText) {
-        try {
-          await navigator.clipboard.writeText(report);
-          copied = true;
-        } catch {
-          // Fall back for mobile browsers that expose Clipboard API but deny it.
-        }
-      }
-      if (!copied) {
-        const temporaryField = document.createElement("textarea");
-        temporaryField.value = report;
-        temporaryField.setAttribute("readonly", "");
-        temporaryField.style.position = "fixed";
-        temporaryField.style.opacity = "0";
-        document.body.appendChild(temporaryField);
-        temporaryField.select();
-        copied = document.execCommand("copy");
-        temporaryField.remove();
-      }
-      if (!copied) throw new Error("A área de transferência não está disponível neste navegador.");
-      setDiagnosticCopyStatus("Diagnóstico copiado. Envie esse texto para análise.");
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
-      setDiagnosticCopyStatus(`Não foi possível copiar: ${message}`);
-    }
-  }
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#171A27] text-white">
       <div
@@ -990,41 +932,6 @@ export default function UploadPage() {
                 </button>
               </footer>
             </form>
-            <details className="mt-6 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/10 bg-[#171A27]/45 p-4">
-              <summary className="flex min-w-0 max-w-full cursor-pointer list-none flex-wrap items-center gap-2 text-sm font-bold text-slate-200 marker:hidden">
-                <SearchCheck aria-hidden="true" size={18} className="text-violet-200" />
-                <span className="min-w-0 flex-1 break-words">Diagnóstico do envio ({diagnostics.length} eventos)</span>
-                <span className="ml-auto min-w-0 max-w-[45%] truncate whitespace-nowrap text-xs font-medium text-slate-400">
-                  {diagnostics.at(-1)?.code ?? "sem eventos"}
-                </span>
-              </summary>
-              <div className="mt-4 border-t border-white/10 pt-4">
-                <p className="text-xs leading-5 text-slate-400">
-                  O histórico identifica se o bloqueio acontece no seletor do celular, na validação, na capa, na autorização do Storage, na transferência ou ao salvar a obra. Nenhum token ou link assinado é incluído.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void copyUploadDiagnostics()}
-                  className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-violet-300/20 bg-violet-300/10 px-3 py-2 text-sm font-bold text-violet-100 transition hover:bg-violet-300/15"
-                >
-                  {diagnosticCopyStatus.startsWith("Diagnóstico copiado") ? <ClipboardCheck aria-hidden="true" size={16} /> : <Clipboard aria-hidden="true" size={16} />}
-                  Copiar diagnóstico técnico
-                </button>
-                {diagnosticCopyStatus && <p role="status" className="mt-2 text-xs text-slate-300">{diagnosticCopyStatus}</p>}
-                <ol className="mt-4 max-h-64 space-y-2 overflow-auto pr-1">
-                  {diagnostics.slice(-20).map((entry) => (
-                    <li key={`${entry.time}:${entry.code}`} className="rounded-xl bg-white/[0.035] p-3 text-xs">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-bold text-violet-200">{entry.code}</span>
-                        <time className="text-slate-500">{new Date(entry.time).toLocaleTimeString()}</time>
-                      </div>
-                      <p className="mt-1 text-slate-200">{entry.message}</p>
-                      {entry.details && <p className="mt-1 break-words text-slate-400">{entry.details}</p>}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </details>
           </section>
 
           <aside className="relative min-h-[300px] overflow-hidden rounded-3xl border border-violet-200/10 bg-gradient-to-br from-[#322b55] via-[#282442] to-[#1d2030] p-6 shadow-2xl shadow-black/20 sm:min-h-[350px] sm:p-8 lg:sticky lg:top-8 lg:min-h-[560px]">
