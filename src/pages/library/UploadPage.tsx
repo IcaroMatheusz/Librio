@@ -44,7 +44,11 @@ export default function UploadPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const bookFileInputRef = useRef<HTMLInputElement>(null);
+  const nativeBookFileInputsRef = useRef(new WeakSet<HTMLInputElement>());
+  const bookFileChangeHandlerRef = useRef<(file: File | null) => void>(() => {});
   const [file, setFile] = useState<File | null>(null);
+  const [bookFileInputKey, setBookFileInputKey] = useState(0);
+  const [isBookFileDragging, setIsBookFileDragging] = useState(false);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [result, setResult] = useState<UploadResult | null>(null);
@@ -79,6 +83,9 @@ export default function UploadPage() {
       return;
     }
 
+    // Some Android pickers return a detached input. Remount it after keeping
+    // the File in React state so the next selection has a fresh DOM input.
+    setBookFileInputKey((key) => key + 1);
     setResult(null);
     setCoverPreparation(null);
     setCoverUrl(null);
@@ -109,18 +116,21 @@ export default function UploadPage() {
     );
   }
 
+  bookFileChangeHandlerRef.current = handleFileChange;
+
   useEffect(() => {
     const input = bookFileInputRef.current;
-    if (!input) return;
+    if (!input || nativeBookFileInputsRef.current.has(input)) return;
 
     // Android file pickers can dispatch `change` after detaching the input
-    // from React's event root. A native listener on the input still receives it.
+    // from React's event root. Keep this native listener on the original input
+    // through rerenders so it can still read the returned FileList.
     const handleNativeFileChange = () => {
-      handleFileChange(input.files?.[0] ?? null);
+      bookFileChangeHandlerRef.current(input.files?.[0] ?? null);
     };
 
+    nativeBookFileInputsRef.current.add(input);
     input.addEventListener("change", handleNativeFileChange);
-    return () => input.removeEventListener("change", handleNativeFileChange);
   });
 
   function handleManualCoverChange(event: ChangeEvent<HTMLInputElement>) {
@@ -331,12 +341,37 @@ export default function UploadPage() {
                 >
                   Arquivo da obra
                 </label>
-                <div
+                <label
+                  htmlFor="book-file"
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    if (!uploading) setIsBookFileDragging(true);
+                  }}
+                  onDragLeave={(event) => {
+                    const nextTarget = event.relatedTarget;
+                    if (
+                      nextTarget instanceof Node &&
+                      event.currentTarget.contains(nextTarget)
+                    ) {
+                      return;
+                    }
+                    setIsBookFileDragging(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setIsBookFileDragging(false);
+                    if (uploading) return;
+                    handleFileChange(event.dataTransfer.files?.[0] ?? null);
+                  }}
                   className={`mt-2 flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-within:ring-4 focus-within:ring-violet-300/10 ${
-                    file
-                      ? "border-violet-300/40 bg-violet-300/[0.07]"
-                      : "border-white/15 bg-[#171A27]/70 hover:border-violet-300/40 hover:bg-violet-300/[0.04]"
-                  } ${uploading ? "opacity-60" : ""}`}
+                    uploading
+                      ? "cursor-not-allowed opacity-60"
+                      : isBookFileDragging
+                        ? "cursor-copy border-violet-300 bg-violet-300/[0.12] ring-4 ring-violet-300/10"
+                        : file
+                          ? "cursor-pointer border-violet-300/40 bg-violet-300/[0.07]"
+                          : "cursor-pointer border-white/15 bg-[#171A27]/70 hover:border-violet-300/40 hover:bg-violet-300/[0.04]"
+                  }`}
                 >
                   <span className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
                     {file ? (
@@ -349,6 +384,7 @@ export default function UploadPage() {
                     {file ? "Arquivo selecionado" : "Escolha um arquivo"}
                   </span>
                   <input
+                    key={bookFileInputKey}
                     ref={bookFileInputRef}
                     id="book-file"
                     type="file"
@@ -363,7 +399,12 @@ export default function UploadPage() {
                       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB · pronto para enviar`
                       : "PDF, EPUB, CBR ou CBZ · até 100 MB"}
                   </span>
-                </div>
+                  {!file && (
+                    <span className="mt-1 text-xs text-slate-500">
+                      Clique ou toque para escolher; no computador, você também pode arrastar o arquivo até aqui.
+                    </span>
+                  )}
+                </label>
               </div>
 
               <div>
