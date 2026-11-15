@@ -300,23 +300,22 @@ export default function UploadPage() {
                 >
                   Arquivo da obra
                 </label>
-                <input
-                  id="book-file"
-                  type="file"
-                  accept=".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip"
-                  required
-                  disabled={uploading}
-                  onChange={handleFileChange}
-                  className="peer sr-only"
-                />
                 <label
-                  htmlFor="book-file"
-                  className={`mt-2 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-within:ring-4 focus-within:ring-violet-300/10 ${
+                  className={`relative mt-2 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-within:ring-4 focus-within:ring-violet-300/10 ${
                     file
                       ? "border-violet-300/40 bg-violet-300/[0.07]"
                       : "border-white/15 bg-[#171A27]/70 hover:border-violet-300/40 hover:bg-violet-300/[0.04]"
                   } ${uploading ? "cursor-not-allowed opacity-60" : ""}`}
                 >
+                  <input
+                    id="book-file"
+                    type="file"
+                    accept=".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip"
+                    required
+                    disabled={uploading}
+                    onChange={handleFileChange}
+                    className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                  />
                   <span className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
                     {file ? (
                       <Check aria-hidden="true" size={21} />
@@ -340,20 +339,19 @@ export default function UploadPage() {
                   Capa personalizada{" "}
                   <span className="font-normal text-slate-500">(opcional)</span>
                 </p>
-                <input
-                  id="manual-book-cover"
-                  type="file"
-                  accept="image/*"
-                  disabled={uploading}
-                  onChange={handleManualCoverChange}
-                  className="peer sr-only"
-                />
                 <label
-                  htmlFor="manual-book-cover"
-                  className={`mt-2 flex min-h-24 cursor-pointer items-center gap-4 rounded-2xl border border-dashed border-white/15 bg-[#171A27]/60 p-3 transition hover:border-violet-300/40 hover:bg-violet-300/[0.04] focus-within:ring-4 focus-within:ring-violet-300/10 ${
+                  className={`relative mt-2 flex min-h-24 cursor-pointer items-center gap-4 rounded-2xl border border-dashed border-white/15 bg-[#171A27]/60 p-3 transition hover:border-violet-300/40 hover:bg-violet-300/[0.04] focus-within:ring-4 focus-within:ring-violet-300/10 ${
                     uploading ? "cursor-not-allowed opacity-60" : ""
                   }`}
                 >
+                  <input
+                    id="manual-book-cover"
+                    type="file"
+                    accept="image/*"
+                    disabled={uploading}
+                    onChange={handleManualCoverChange}
+                    className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                  />
                   {manualCoverUrl ? (
                     <img
                       src={manualCoverUrl}
