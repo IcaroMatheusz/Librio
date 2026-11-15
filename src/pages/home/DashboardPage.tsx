@@ -11,6 +11,7 @@ import { DashboardHeader } from "../../components/dashboard/DashboardHeader";
 import { LocalReadingBanner } from "../../components/dashboard/LocalReadingBanner";
 import { DashboardSummary } from "../../components/dashboard/DashboardSummary";
 import { StorageIndicator } from "../../components/StorageIndicator";
+import { AppFooter } from "../../components/AppFooter";
 import { useDashboardData } from "../../hooks/useDashboardData";
 
 export default function DashboardPage() {
@@ -73,9 +74,7 @@ export default function DashboardPage() {
           <RecentReadsSection books={data.recentReads} />
         </section>
 
-        <footer className="border-t border-white/10 pt-5 text-center text-xs text-slate-500">
-          Librio — sua próxima leitura começa aqui.
-        </footer>
+        <AppFooter />
       </div>
     </main>
   );

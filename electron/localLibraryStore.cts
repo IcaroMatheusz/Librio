@@ -3,6 +3,7 @@ import {
   access,
   mkdir,
   readFile,
+  readdir,
   rename,
   rm,
   stat,
@@ -207,6 +208,62 @@ export async function addLocalBooks(
   return Promise.all(
     addedBooks.map((book) => toLocalBook(userDataPath, book, true)),
   );
+}
+
+async function findSupportedFiles(directoryPath: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(directoryPath, { withFileTypes: true });
+  } catch (error) {
+    throw new Error(
+      `Nao foi possivel ler a pasta "${directoryPath}": ${error instanceof Error ? error.message : "erro desconhecido"}`,
+    );
+  }
+
+  const files: string[] = [];
+  entries.sort((left, right) =>
+    left.name.localeCompare(right.name, "pt-BR", {
+      numeric: true,
+      sensitivity: "base",
+    }),
+  );
+
+  for (const entry of entries) {
+    const entryPath = join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await findSupportedFiles(entryPath)));
+      continue;
+    }
+    if (entry.isFile() && isSupportedFileType(extname(entry.name).slice(1).toLowerCase())) {
+      files.push(entryPath);
+    }
+  }
+
+  return files;
+}
+
+export async function addLocalBooksFromDirectory(
+  userDataPath: string,
+  directoryPath: string,
+): Promise<LocalBook[]> {
+  const resolvedDirectory = resolve(directoryPath);
+  let directoryStat;
+  try {
+    directoryStat = await stat(resolvedDirectory);
+  } catch (error) {
+    throw new Error(
+      `Nao foi possivel acessar a pasta selecionada: ${error instanceof Error ? error.message : "erro desconhecido"}`,
+    );
+  }
+  if (!directoryStat.isDirectory()) {
+    throw new Error("O local selecionado nao e uma pasta.");
+  }
+
+  const selectedPaths = await findSupportedFiles(resolvedDirectory);
+  if (selectedPaths.length === 0) {
+    throw new Error("Nao foram encontrados arquivos PDF, EPUB, CBR ou CBZ nesta pasta.");
+  }
+  return addLocalBooks(userDataPath, selectedPaths);
 }
 
 export async function saveLocalBookCover(

@@ -3,6 +3,7 @@ import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 
 import { Loading } from "./components/Loading";
 import { AuthProvider } from "./contexts/AuthContext";
+import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/ProtectedRoute";
 
 import Login from "./pages/auth/LoginPage";
@@ -24,9 +25,10 @@ export default function App() {
 
   return (
     <>
-      <AuthProvider>
-        <Router>
-          <Routes>
+      <DesktopUpdateProvider>
+        <AuthProvider>
+          <Router>
+            <Routes>
             {/* Rotas públicas */}
             <Route element={<PublicOnlyRoute />}>
               <Route path="/" element={<Login />} />
@@ -55,9 +57,10 @@ export default function App() {
               <Route path="/volume/:volumeId" element={<VolumeReader />} />
             </Route>
             <Route path="*" element={<ErrorScreen />} />
-          </Routes>
-        </Router>
-      </AuthProvider>
+            </Routes>
+          </Router>
+        </AuthProvider>
+      </DesktopUpdateProvider>
     </>
   );
 }

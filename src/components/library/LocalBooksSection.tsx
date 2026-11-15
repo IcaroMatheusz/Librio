@@ -1,4 +1,4 @@
-import { FolderOpen, Plus, RefreshCw } from "lucide-react";
+import { FolderOpen, FolderPlus, Plus, RefreshCw } from "lucide-react";
 
 import { BookCard } from "../BookCard";
 import type { LocalBook } from "../../../shared/desktop";
@@ -11,7 +11,9 @@ interface LocalBooksSectionProps {
   error: string | null;
   progressError: string | null;
   coverBusyId: string | null;
+  directoryBusy: boolean;
   onAdd: () => void;
+  onAddDirectory: () => void;
   onRemove: (book: LocalBook) => void;
   onCoverSelect: (book: LocalBook, file: File) => void;
   onRetry: () => void;
@@ -25,7 +27,9 @@ export function LocalBooksSection({
   error,
   progressError,
   coverBusyId,
+  directoryBusy,
   onAdd,
+  onAddDirectory,
   onRemove,
   onCoverSelect,
   onRetry,
@@ -51,15 +55,26 @@ export function LocalBooksSection({
             nuvem.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onAdd}
-          disabled={busy}
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-emerald-100/15 bg-emerald-100/[0.06] px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:border-emerald-100/30 hover:bg-emerald-100/[0.1] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-emerald-200 disabled:cursor-wait disabled:opacity-60 sm:text-sm"
-        >
-          <Plus aria-hidden="true" size={16} />
-          {busy ? "Aguarde..." : "Adicionar arquivos"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onAdd}
+            disabled={busy}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-emerald-100/15 bg-emerald-100/[0.06] px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:border-emerald-100/30 hover:bg-emerald-100/[0.1] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-emerald-200 disabled:cursor-wait disabled:opacity-60 sm:text-sm"
+          >
+            <Plus aria-hidden="true" size={16} />
+            {busy && !directoryBusy ? "Aguarde..." : "Adicionar arquivos"}
+          </button>
+          <button
+            type="button"
+            onClick={onAddDirectory}
+            disabled={busy}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-violet-200/20 bg-violet-300/[0.09] px-3 py-2 text-xs font-semibold text-violet-100 transition hover:border-violet-200/40 hover:bg-violet-300/[0.15] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-violet-200 disabled:cursor-wait disabled:opacity-60 sm:text-sm"
+          >
+            <FolderPlus aria-hidden="true" size={16} />
+            {directoryBusy ? "Lendo pasta..." : "Adicionar pasta"}
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -102,7 +117,7 @@ export function LocalBooksSection({
             Nenhum arquivo local adicionado
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-400">
-            Escolha PDFs, EPUBs, CBRs ou CBZs do seu computador.
+            Escolha arquivos ou uma pasta. Pastas internas tambem sao lidas; formatos aceitos: PDF, EPUB, CBR e CBZ.
           </p>
         </div>
       ) : (

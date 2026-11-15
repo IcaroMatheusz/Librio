@@ -16,6 +16,7 @@ import { VolumeCard } from "../../components/library/VolumeCard";
 import { VolumeAuthorDialog } from "../../components/library/VolumeAuthorDialog";
 import { VolumeRenameDialog } from "../../components/library/VolumeRenameDialog";
 import { StorageIndicator } from "../../components/StorageIndicator";
+import { AppFooter } from "../../components/AppFooter";
 import {
   deleteBook,
   getBooks,
@@ -25,6 +26,7 @@ import {
 } from "../../services/booksService";
 import {
   addLocalBooks,
+  addLocalBooksFromDirectory,
   getLocalBookFile,
   getLocalBooks,
   isDesktopApp,
@@ -87,6 +89,7 @@ export default function LibraryPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [coverBusyId, setCoverBusyId] = useState<string | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
+  const [directoryBusy, setDirectoryBusy] = useState(false);
   const localCoverJobs = useRef(new Set<string>());
 
   const ensureLocalBookCovers = useCallback(async (booksToCheck: LocalBook[]) => {
@@ -247,6 +250,27 @@ export default function LibraryPage() {
           : "Não foi possível adicionar os arquivos locais.",
       );
     } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function handleAddLocalDirectory() {
+    setLocalBusy(true);
+    setDirectoryBusy(true);
+    setLocalError(null);
+    try {
+      await addLocalBooksFromDirectory();
+      const updatedBooks = await getLocalBooks();
+      setLocalBooks(updatedBooks);
+      void ensureLocalBookCovers(updatedBooks);
+    } catch (caughtError) {
+      setLocalError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "NÃ£o foi possÃ­vel importar as obras desta pasta.",
+      );
+    } finally {
+      setDirectoryBusy(false);
       setLocalBusy(false);
     }
   }
@@ -619,7 +643,9 @@ export default function LibraryPage() {
               error={localError}
               progressError={localProgressError}
               coverBusyId={coverBusyId}
+              directoryBusy={directoryBusy}
               onAdd={() => void handleAddLocalBooks()}
+              onAddDirectory={() => void handleAddLocalDirectory()}
               onRemove={(book) => void handleRemoveLocalBook(book.id)}
               onCoverSelect={(book, file) =>
                 void handleLocalCoverSelect(book, file)
@@ -690,6 +716,7 @@ export default function LibraryPage() {
             }
           />
         </section>
+        <AppFooter className="mt-10" />
       </div>
 
       {dialog && (

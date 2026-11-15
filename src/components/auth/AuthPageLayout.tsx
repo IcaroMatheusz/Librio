@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BookOpen } from "lucide-react";
 
+import { AppFooter } from "../AppFooter";
+
 const PHRASES = [
   "Seus livros.",
   "Seus quadrinhos.",
@@ -64,9 +66,7 @@ export function AuthPageLayout({
 
         {children}
 
-        <footer className="relative z-10 mt-6 text-center text-xs tracking-wide text-white/70 md:mt-8 md:text-sm">
-          Librio © 2026 — Sua próxima leitura começa aqui.
-        </footer>
+        <AppFooter className="relative z-10 mt-6 md:mt-8" />
       </section>
 
       <aside className="relative hidden overflow-hidden lg:flex">

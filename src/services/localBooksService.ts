@@ -20,6 +20,16 @@ export async function addLocalBooks(): Promise<LocalBook[]> {
   return getDesktopBridge().addLocalBooks();
 }
 
+export async function addLocalBooksFromDirectory(): Promise<LocalBook[]> {
+  const bridge = getDesktopBridge();
+  if (typeof bridge.addLocalBooksFromDirectory !== "function") {
+    throw new Error(
+      "A integracao do app esta desatualizada. Atualize o Librio Desktop para importar pastas.",
+    );
+  }
+  return bridge.addLocalBooksFromDirectory();
+}
+
 export async function removeLocalBook(bookId: string): Promise<void> {
   return getDesktopBridge().removeLocalBook(bookId);
 }
@@ -31,7 +41,7 @@ export async function saveLocalBookCover(
   const bridge = getDesktopBridge();
   if (typeof bridge.saveLocalBookCover !== "function") {
     throw new Error(
-      "A integração do app está desatualizada. Feche todas as janelas do Librio Desktop e abra o aplicativo novamente para atualizar o suporte a capas locais.",
+      "A integracao do app esta desatualizada. Atualize o Librio Desktop para importar pastas.",
     );
   }
   return bridge.saveLocalBookCover(bookId, new Uint8Array(await cover.arrayBuffer()));

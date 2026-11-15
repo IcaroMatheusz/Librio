@@ -11,10 +11,14 @@ import {
   shell,
 } from "electron";
 import { autoUpdater } from "electron-updater";
-import type { LocalBookFileType } from "../shared/desktop.js";
+import type {
+  DesktopUpdateStatus,
+  LocalBookFileType,
+} from "../shared/desktop.js";
 
 import {
   addLocalBooks,
+  addLocalBooksFromDirectory,
   getLocalBookCoverPathForBook,
   getLocalBookPath,
   listLocalBooks,
@@ -43,6 +47,23 @@ const FILE_MIME_TYPES: Record<LocalBookFileType, string> = {
 };
 
 let mainWindow: BrowserWindow | null = null;
+let currentUpdateStatus: DesktopUpdateStatus = {
+  status: "idle",
+  currentVersion: app.getVersion(),
+};
+
+function publishUpdateStatus(
+  status: DesktopUpdateStatus["status"],
+  details: Omit<DesktopUpdateStatus, "status" | "currentVersion"> = {},
+): DesktopUpdateStatus {
+  currentUpdateStatus = {
+    status,
+    currentVersion: app.getVersion(),
+    ...details,
+  };
+  mainWindow?.webContents.send("desktop-updates:status", currentUpdateStatus);
+  return currentUpdateStatus;
+}
 
 function isSafeExternalUrl(rawUrl: string): boolean {
   try {
@@ -79,6 +100,20 @@ function registerLocalBookHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) return [];
 
     return addLocalBooks(app.getPath("userData"), result.filePaths);
+  });
+
+  ipcMain.handle("local-books:add-directory", async () => {
+    if (!mainWindow) throw new Error("A janela do Librio nao esta disponivel.");
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Selecionar pasta com obras",
+      properties: ["openDirectory"],
+    });
+    if (result.canceled || result.filePaths.length === 0) return [];
+
+    return addLocalBooksFromDirectory(
+      app.getPath("userData"),
+      result.filePaths[0],
+    );
   });
 
   ipcMain.handle("local-books:remove", (_event, bookId: unknown) => {
@@ -266,30 +301,64 @@ async function createMainWindow(): Promise<void> {
   }
 }
 
+function registerDesktopUpdateHandlers(): void {
+  ipcMain.handle("desktop-updates:get-status", () => currentUpdateStatus);
+  ipcMain.handle("desktop-updates:check", async () => {
+    if (!app.isPackaged) {
+      return publishUpdateStatus("unsupported", {
+        message: "A verificacao de atualizacoes funciona na versao instalada do Librio.",
+      });
+    }
+    try {
+      await autoUpdater.checkForUpdates();
+      return currentUpdateStatus;
+    } catch (error) {
+      return publishUpdateStatus("error", {
+        message:
+          error instanceof Error
+            ? error.message
+            : "Nao foi possivel verificar atualizacoes.",
+      });
+    }
+  });
+  ipcMain.handle("desktop-updates:install", () => {
+    if (currentUpdateStatus.status !== "downloaded") {
+      throw new Error("Ainda nao ha uma atualizacao pronta para instalar.");
+    }
+    autoUpdater.quitAndInstall();
+  });
+}
+
 function configureAutoUpdates(): void {
   if (!app.isPackaged) return;
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("checking-for-update", () => {
+    publishUpdateStatus("checking");
+  });
+  autoUpdater.on("update-available", (info) => {
+    publishUpdateStatus("available", { nextVersion: info.version });
+  });
+  autoUpdater.on("update-not-available", () => {
+    publishUpdateStatus("up-to-date");
+  });
+  autoUpdater.on("download-progress", (progress) => {
+    publishUpdateStatus("downloading", {
+      percent: Math.max(0, Math.min(100, Math.round(progress.percent))),
+    });
+  });
   autoUpdater.on("error", (error) => {
+    publishUpdateStatus("error", {
+      message: error.message || "Nao foi possivel verificar as atualizacoes.",
+    });
     console.error("Não foi possível verificar/baixar atualizações do Librio:", error);
   });
-  autoUpdater.on("update-downloaded", async (info) => {
-    if (!mainWindow) {
-      autoUpdater.quitAndInstall();
-      return;
-    }
-
-    const { response } = await dialog.showMessageBox(mainWindow, {
-      type: "info",
-      title: "Atualização do Librio pronta",
-      message: `A versão ${info.version} foi baixada e está pronta para instalar.`,
-      buttons: ["Reiniciar agora", "Mais tarde"],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
+  autoUpdater.on("update-downloaded", (info) => {
+    publishUpdateStatus("downloaded", {
+      nextVersion: info.version,
+      percent: 100,
     });
-    if (response === 0) autoUpdater.quitAndInstall();
   });
   void autoUpdater.checkForUpdates().catch((error: unknown) => {
     console.error("Não foi possível verificar atualizações do Librio:", error);
@@ -298,6 +367,7 @@ function configureAutoUpdates(): void {
 
 void app.whenReady().then(async () => {
   registerLocalBookHandlers();
+  registerDesktopUpdateHandlers();
   registerLocalBookProtocol();
   await createMainWindow();
   configureAutoUpdates();

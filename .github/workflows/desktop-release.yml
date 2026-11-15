@@ -26,11 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Windows installer
+      - name: Build and publish Windows installer with update metadata
         shell: pwsh
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL)) {
             throw "Configure o secret VITE_SUPABASE_URL nas configurações do repositório."
@@ -38,14 +39,4 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
             throw "Configure o secret VITE_SUPABASE_ANON_KEY nas configurações do repositório."
           }
-          npm run electron:dist -- --win --publish never
-
-      - name: Publish installer to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            release/*.exe
-          fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          npm run electron:dist -- --win --publish always
