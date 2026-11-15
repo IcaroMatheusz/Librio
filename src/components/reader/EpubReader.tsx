@@ -840,14 +840,14 @@ export function EpubReader({
           className={`inline-flex shrink-0 items-center gap-1.5 font-semibold ${
             theme === "night" ? "text-violet-100" : "text-violet-800"
           }`}
-          aria-label={`${currentProgress}% do EPUB lido`}
+          aria-label={`${currentProgress}% do EPUB concluído`}
         >
           <BookOpen
             aria-hidden="true"
             size={15}
             className={theme === "night" ? "text-violet-200" : "text-violet-700"}
           />
-          {currentProgress}% <span className="hidden sm:inline">lido</span>
+          {currentProgress}% <span className="hidden sm:inline">concluído</span>
         </span>
         <button
           type="button"
@@ -870,7 +870,7 @@ export function EpubReader({
                 theme === "night" ? "text-violet-200" : "text-violet-700"
               }`}
             />
-            <span className="truncate">Salvando progresso…</span>
+            <span className="truncate">Sincronizando progresso…</span>
           </span>
         )}
         {saveStatus === "saved" && (
@@ -880,7 +880,7 @@ export function EpubReader({
               size={14}
               className={theme === "night" ? "text-emerald-300" : "text-emerald-700"}
             />
-            Progresso salvo
+            Progresso sincronizado
           </span>
         )}
         {saveStatus === "error" && (

@@ -4,6 +4,7 @@ import {
   RecentReadsSection,
 } from "../../components/dashboard/DashboardBookSections";
 import { ContinueReading } from "../../components/dashboard/ContinueReading";
+import { DashboardVolumesSection } from "../../components/dashboard/DashboardVolumesSection";
 import { DashboardError } from "../../components/dashboard/DashboardError";
 import { DashboardBanner } from "../../components/dashboard/DashboardBanner";
 import { DashboardHeader } from "../../components/dashboard/DashboardHeader";
@@ -53,6 +54,8 @@ export default function DashboardPage() {
           book={data.recentReads[0] ?? null}
           isLibraryEmpty={data.totalBooks === 0}
         />
+
+        <DashboardVolumesSection volumes={data.volumes} />
 
         <StorageIndicator storage={data.storage} />
 

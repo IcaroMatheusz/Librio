@@ -6,6 +6,10 @@ import {
   getRecentReads,
 } from "../services/progressService";
 import { getUserStorage } from "../services/storageService";
+import {
+  getVolumeDashboardReads,
+  type VolumeDashboardRead,
+} from "../services/volumesService";
 import type { Book, RecentRead, UserStorage } from "../types/database";
 
 export interface DashboardData {
@@ -15,6 +19,7 @@ export interface DashboardData {
   inProgressCount: number;
   completedCount: number;
   storage: UserStorage;
+  volumes: VolumeDashboardRead[];
 }
 
 export function useDashboardData() {
@@ -35,12 +40,14 @@ export function useDashboardData() {
         totalBooks,
         progressCounts,
         storage,
+        volumes,
       ] = await Promise.all([
         getRecentBooks(),
         getRecentReads(),
         getBookCount(),
         getProgressCounts(),
         getUserStorage(),
+        getVolumeDashboardReads().catch(() => []),
       ]);
 
       if (requestId.current !== currentRequestId) return;
@@ -51,6 +58,7 @@ export function useDashboardData() {
         inProgressCount: progressCounts.inProgress,
         completedCount: progressCounts.completed,
         storage,
+        volumes,
       });
     } catch (caughtError) {
       if (requestId.current !== currentRequestId) return;

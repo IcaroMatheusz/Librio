@@ -8,6 +8,10 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
+  CircleAlert,
+  CircleCheck,
+  LoaderCircle,
   Maximize,
 } from "lucide-react";
 
@@ -595,20 +599,45 @@ export function ComicReader({
       </figure>
 
       <footer
-        className={`flex min-h-9 shrink-0 items-center justify-end border-t px-4 text-xs ${
+        className={`flex min-h-9 shrink-0 items-center justify-between gap-3 border-t px-4 text-xs ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/70 text-slate-400"
             : "border-stone-300 bg-[#f2eadc] text-stone-600"
         }`}
       >
-        {saveStatus === "saving" && <span role="status">Sincronizando progresso…</span>}
-        {saveStatus === "saved" && <span role="status">Progresso sincronizado</span>}
+        <span
+          className={`inline-flex shrink-0 items-center gap-1.5 font-semibold ${
+            theme === "night" ? "text-violet-100" : "text-violet-800"
+          }`}
+          aria-label={`${Math.max(1, Math.round(((pageIndex + 1) / Math.max(1, pages.length)) * 100))}% dos quadrinhos concluído`}
+        >
+          <BookOpen
+            aria-hidden="true"
+            size={15}
+            className={theme === "night" ? "text-violet-200" : "text-violet-700"}
+          />
+          {Math.max(1, Math.round(((pageIndex + 1) / Math.max(1, pages.length)) * 100))}%
+          <span className="hidden sm:inline">concluído</span>
+        </span>
+        {saveStatus === "saving" && (
+          <span role="status" className="inline-flex min-w-0 items-center gap-1.5">
+            <LoaderCircle aria-hidden="true" size={14} className="shrink-0 animate-spin text-violet-300" />
+            <span className="truncate">Sincronizando progresso…</span>
+          </span>
+        )}
+        {saveStatus === "saved" && (
+          <span role="status" className="inline-flex items-center gap-1.5">
+            <CircleCheck aria-hidden="true" size={14} className="text-emerald-300" />
+            Progresso sincronizado
+          </span>
+        )}
         {saveStatus === "error" && (
           <span
             className={`flex min-w-0 items-center gap-2 ${
               theme === "night" ? "text-rose-200" : "text-rose-800"
             }`}
           >
+            <CircleAlert aria-hidden="true" size={14} className="shrink-0" />
             <span className="truncate" title={saveError ?? undefined}>
               {saveError ?? "Não foi possível sincronizar o progresso."}
             </span>

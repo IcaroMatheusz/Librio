@@ -23,6 +23,13 @@ export interface VolumeProgress {
   progress: number;
 }
 
+export interface VolumeDashboardRead extends BookVolume {
+  chapterNumber: number;
+  chapterProgress: number;
+  progress: number;
+  lastReadAt: string | null;
+}
+
 export interface NewVolumeChapter {
   bookId: string;
   title: string;
@@ -131,6 +138,49 @@ export async function getVolumes(): Promise<BookVolume[]> {
   return volumeRows.map((row) =>
     toBookVolume(row, chaptersByVolume.get(row.id) ?? []),
   );
+}
+
+export async function getVolumeDashboardReads(
+  limit = 4,
+): Promise<VolumeDashboardRead[]> {
+  const volumes = (await getVolumes()).filter(({ chapters }) => chapters.length > 0);
+  if (volumes.length === 0) return [];
+
+  const client = await getSupabaseClient();
+  const { data: progressRows, error } = await client
+    .from("volume_reading_progress")
+    .select("volume_id, chapter_number, progress, last_read_at")
+    .in("volume_id", volumes.map(({ id }) => id));
+  if (error) throw volumeSchemaError(error.message);
+
+  const progressByVolume = new Map(
+    progressRows.map((row) => [row.volume_id, row]),
+  );
+  return volumes
+    .map((volume) => {
+      const saved = progressByVolume.get(volume.id);
+      const chapterNumber = Math.min(
+        volume.chapters.length,
+        Math.max(1, saved?.chapter_number ?? 1),
+      );
+      const chapterProgress = Math.max(0, Math.min(100, saved?.progress ?? 0));
+      const progress = Math.round(
+        (((chapterNumber - 1) + chapterProgress / 100) / volume.chapters.length) * 100,
+      );
+      return {
+        ...volume,
+        chapterNumber,
+        chapterProgress,
+        progress,
+        lastReadAt: saved?.last_read_at ?? null,
+      };
+    })
+    .sort((a, b) => {
+      const aDate = a.lastReadAt ?? a.createdAt;
+      const bDate = b.lastReadAt ?? b.createdAt;
+      return bDate.localeCompare(aDate);
+    })
+    .slice(0, limit);
 }
 
 export async function getVolumeById(volumeId: string): Promise<BookVolume> {

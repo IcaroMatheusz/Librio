@@ -710,14 +710,14 @@ export function PdfReader({
           className={`inline-flex shrink-0 items-center gap-1.5 font-semibold ${
             theme === "night" ? "text-violet-100" : "text-violet-800"
           }`}
-          aria-label={`${readingProgress}% do PDF lido`}
+          aria-label={`${readingProgress}% do PDF concluído`}
         >
           <BookOpen
             aria-hidden="true"
             size={15}
             className={theme === "night" ? "text-violet-200" : "text-violet-700"}
           />
-          {readingProgress}% <span className="hidden sm:inline">lido</span>
+          {readingProgress}% <span className="hidden sm:inline">concluído</span>
         </span>
         {saveStatus === "saving" && (
           <span role="status" className="inline-flex min-w-0 items-center gap-1.5">
@@ -728,7 +728,7 @@ export function PdfReader({
                 theme === "night" ? "text-violet-200" : "text-violet-700"
               }`}
             />
-            <span className="truncate">Salvando progresso…</span>
+            <span className="truncate">Sincronizando progresso…</span>
           </span>
         )}
         {saveStatus === "saved" && (
@@ -738,7 +738,7 @@ export function PdfReader({
               size={14}
               className={theme === "night" ? "text-emerald-300" : "text-emerald-700"}
             />
-            Progresso salvo
+            Progresso sincronizado
           </span>
         )}
         {saveStatus === "error" && (
