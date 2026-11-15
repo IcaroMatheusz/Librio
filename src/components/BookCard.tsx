@@ -5,13 +5,17 @@ import { Link } from "react-router-dom";
 import type { Book } from "../types/database";
 
 interface BookCardProps {
-  book: Book;
+  book: Pick<Book, "id" | "title" | "author" | "cover_url" | "file_type">;
   progress?: number;
   showFormat?: boolean;
+  sourceLabel?: string;
+  statusMessage?: string;
   to?: string;
   returnTo?: "/dashboard" | "/library";
   onRename?: () => void;
   onDelete?: () => void;
+  onRemoveLocal?: () => void;
+  localRemoveDisabled?: boolean;
   onCoverSelect?: (file: File) => void;
   coverBusy?: boolean;
   coverDisabled?: boolean;
@@ -21,10 +25,14 @@ export function BookCard({
   book,
   progress,
   showFormat = false,
+  sourceLabel,
+  statusMessage,
   to,
   returnTo,
   onRename,
   onDelete,
+  onRemoveLocal,
+  localRemoveDisabled = false,
   onCoverSelect,
   coverBusy = false,
   coverDisabled = false,
@@ -63,8 +71,13 @@ export function BookCard({
           className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/50 to-transparent"
         />
         {showFormat && (
-          <span className="absolute left-3 top-3 rounded-lg border border-white/15 bg-[#171A27]/85 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-white shadow-sm backdrop-blur-sm sm:text-xs">
+          <span className="absolute right-3 top-3 rounded-lg border border-white/15 bg-[#171A27]/85 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-white shadow-sm backdrop-blur-sm sm:text-xs">
             {book.file_type.toUpperCase()}
+          </span>
+        )}
+        {sourceLabel && (
+          <span className="absolute left-3 top-3 rounded-lg border border-emerald-100/20 bg-emerald-950/85 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.1em] text-emerald-100 shadow-sm backdrop-blur-sm sm:text-xs">
+            {sourceLabel}
           </span>
         )}
         <span
@@ -87,6 +100,11 @@ export function BookCard({
         >
           {book.author}
         </p>
+        {statusMessage && (
+          <p role="status" className="mt-2 text-xs leading-5 text-amber-200">
+            {statusMessage}
+          </p>
+        )}
         {progress !== undefined && (
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
@@ -118,7 +136,7 @@ export function BookCard({
         <Link
           to={to}
           state={returnTo ? { returnTo } : undefined}
-          aria-label={`Abrir ${book.title}`}
+          aria-label={`Abrir ${sourceLabel ? "obra local " : ""}${book.title}`}
           className="block rounded-t-2xl focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-violet-200"
         >
           {content}
@@ -126,7 +144,7 @@ export function BookCard({
       ) : (
         content
       )}
-      {(onRename || onDelete || onCoverSelect) && (
+      {(onRename || onDelete || onCoverSelect || onRemoveLocal) && (
         <footer className="grid grid-cols-2 items-center gap-1.5 border-t border-white/[0.07] px-2 py-2.5 sm:gap-2 sm:px-3">
           {onCoverSelect && (
             <label className="col-span-2 inline-flex min-h-9 min-w-0 cursor-pointer items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 text-[10px] font-semibold text-slate-200 transition hover:border-violet-200/20 hover:bg-violet-200/[0.07] hover:text-violet-100 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-violet-200 sm:gap-1.5 sm:text-xs">
@@ -145,6 +163,19 @@ export function BookCard({
               <ImagePlus aria-hidden="true" size={14} />
               <span>{coverBusy ? "Salvando" : "Capa"}</span>
             </label>
+          )}
+          {onRemoveLocal && (
+            <button
+              type="button"
+              onClick={onRemoveLocal}
+              disabled={localRemoveDisabled}
+              aria-label={`Remover ${book.title} da biblioteca local; o arquivo original será mantido`}
+              title="O arquivo original será mantido"
+              className="col-span-2 inline-flex min-h-9 min-w-0 items-center justify-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 text-[10px] font-semibold text-slate-200 transition hover:border-rose-200/20 hover:bg-rose-200/[0.07] hover:text-rose-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 disabled:cursor-wait disabled:opacity-50 sm:gap-1.5 sm:text-xs"
+            >
+              <Trash2 aria-hidden="true" size={14} />
+              Remover da lista
+            </button>
           )}
           <button
             type="button"

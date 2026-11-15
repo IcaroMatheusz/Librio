@@ -9,6 +9,7 @@ import { LibraryBooksContent } from "../../components/library/LibraryBooksConten
 import { LibraryCollectionHeader } from "../../components/library/LibraryCollectionHeader";
 import { LibraryDownloadLink } from "../../components/library/LibraryDownloadLink";
 import { LibraryHero } from "../../components/library/LibraryHero";
+import { LocalBooksSection } from "../../components/library/LocalBooksSection";
 import { LibraryNotice, type LibraryNoticeData } from "../../components/library/LibraryNotice";
 import { LibraryPageHeader } from "../../components/library/LibraryPageHeader";
 import { VolumeCard } from "../../components/library/VolumeCard";
@@ -18,19 +19,38 @@ import {
   renameBook,
   uploadBookCover,
 } from "../../services/booksService";
+import {
+  addLocalBooks,
+  getLocalBooks,
+  isDesktopApp,
+  removeLocalBook,
+} from "../../services/localBooksService";
 import type { Book } from "../../types/database";
 import {
   deleteVolume as deleteVolumeService,
   getVolumes,
   type BookVolume,
 } from "../../services/volumesService";
+import { getLocalReadingProgress } from "../../services/progressService";
 
 export default function LibraryPage() {
+  const desktopApp = isDesktopApp();
   const [books, setBooks] = useState<Book[]>([]);
   const [volumes, setVolumes] = useState<BookVolume[]>([]);
+  const [localBooks, setLocalBooks] = useState<
+    Awaited<ReturnType<typeof getLocalBooks>>
+  >([]);
+  const [localProgress, setLocalProgress] = useState<Map<string, number>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState(true);
+  const [localLoading, setLocalLoading] = useState(desktopApp);
   const [error, setError] = useState<string | null>(null);
   const [volumeError, setVolumeError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localProgressError, setLocalProgressError] = useState<string | null>(
+    null,
+  );
   const [reloadKey, setReloadKey] = useState(0);
   const [dialog, setDialog] = useState<BookActionDialogState | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
@@ -40,17 +60,26 @@ export default function LibraryPage() {
   );
   const [actionBusy, setActionBusy] = useState(false);
   const [coverBusyId, setCoverBusyId] = useState<string | null>(null);
+  const [localBusy, setLocalBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
 
     async function loadLibrary() {
       setLoading(true);
+      setLocalLoading(desktopApp);
       setError(null);
       setVolumeError(null);
-      const [booksResult, volumesResult] = await Promise.allSettled([
+      setLocalError(null);
+      setLocalProgressError(null);
+      const [booksResult, volumesResult, localBooksResult, localProgressResult] =
+        await Promise.allSettled([
         getBooks(),
         getVolumes(),
+        desktopApp ? getLocalBooks() : Promise.resolve([]),
+        desktopApp
+          ? getLocalReadingProgress()
+          : Promise.resolve(new Map<string, number>()),
       ]);
       if (active) {
         if (booksResult.status === "fulfilled") {
@@ -71,15 +100,74 @@ export default function LibraryPage() {
               : "Não foi possível carregar seus volumes.",
           );
         }
+        if (desktopApp) {
+          if (localBooksResult.status === "fulfilled") {
+            setLocalBooks(localBooksResult.value);
+          } else {
+            setLocalError(
+              localBooksResult.reason instanceof Error
+                ? localBooksResult.reason.message
+                : "Não foi possível carregar os arquivos locais.",
+            );
+          }
+          if (localProgressResult.status === "fulfilled") {
+            setLocalProgress(localProgressResult.value);
+          } else {
+            setLocalProgressError(
+              localProgressResult.reason instanceof Error
+                ? localProgressResult.reason.message
+                : "Não foi possível carregar o progresso das obras locais.",
+            );
+          }
+        }
       }
-      if (active) setLoading(false);
+      if (active) {
+        setLoading(false);
+        setLocalLoading(false);
+      }
     }
 
     void loadLibrary();
     return () => {
       active = false;
     };
-  }, [reloadKey]);
+  }, [desktopApp, reloadKey]);
+
+  async function handleAddLocalBooks() {
+    setLocalBusy(true);
+    setLocalError(null);
+    try {
+      await addLocalBooks();
+      setLocalBooks(await getLocalBooks());
+    } catch (caughtError) {
+      setLocalError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível adicionar os arquivos locais.",
+      );
+    } finally {
+      setLocalBusy(false);
+    }
+  }
+
+  async function handleRemoveLocalBook(bookId: string) {
+    setLocalBusy(true);
+    setLocalError(null);
+    try {
+      await removeLocalBook(bookId);
+      setLocalBooks((currentBooks) =>
+        currentBooks.filter((book) => book.id !== bookId),
+      );
+    } catch (caughtError) {
+      setLocalError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível remover a obra da biblioteca local.",
+      );
+    } finally {
+      setLocalBusy(false);
+    }
+  }
 
   async function handleDeleteVolume(volume: BookVolume) {
     if (
@@ -215,11 +303,24 @@ export default function LibraryPage() {
 
       <div className="relative mx-auto max-w-7xl px-4 pb-14 pt-6 sm:px-8 sm:pb-16 sm:pt-9 lg:px-12">
         <LibraryHero
-          bookCount={books.length + volumes.length}
+          bookCount={books.length + volumes.length + localBooks.length}
           loading={loading}
         />
 
         <section aria-labelledby="collection-title">
+          {desktopApp && (
+            <LocalBooksSection
+              books={localBooks}
+              progressByBookId={localProgress}
+              loading={localLoading}
+              busy={localBusy}
+              error={localError}
+              progressError={localProgressError}
+              onAdd={() => void handleAddLocalBooks()}
+              onRemove={(book) => void handleRemoveLocalBook(book.id)}
+              onRetry={() => setReloadKey((key) => key + 1)}
+            />
+          )}
           {volumeError && (
             <LibraryNotice notice={{ message: volumeError, type: "warning" }} />
           )}
@@ -234,7 +335,7 @@ export default function LibraryPage() {
                     id="volumes-title"
                     className="mt-1.5 text-xl font-extrabold tracking-tight sm:text-2xl"
                   >
-                    Seus volumes
+                    {desktopApp ? "Volumes na nuvem" : "Seus volumes"}
                   </h2>
                 </div>
                 <Link
@@ -258,8 +359,10 @@ export default function LibraryPage() {
           )}
           <LibraryCollectionHeader
             showSortLabel={!loading && !error && books.length > 0}
+            eyebrow={desktopApp ? "Armazenadas na nuvem" : undefined}
+            title={desktopApp ? "Obras na nuvem" : undefined}
           />
-          <LibraryDownloadLink />
+          {!desktopApp && <LibraryDownloadLink />}
           <LibraryNotice notice={actionNotice} />
           <LibraryBooksContent
             books={books}

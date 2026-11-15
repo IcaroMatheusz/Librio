@@ -129,3 +129,93 @@ export async function getProgressCounts(): Promise<ProgressCounts> {
     completed: completedResult.count ?? 0,
   };
 }
+
+export async function getLocalReadingProgress(): Promise<
+  Map<string, number>
+> {
+  const client = await getSupabaseClient();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) {
+    throw new Error(
+      `Não foi possível identificar sua sessão para carregar o progresso local: ${userError.message}`,
+    );
+  }
+  if (!userData.user) {
+    throw new Error("Sua sessão expirou. Entre novamente para carregar o progresso local.");
+  }
+
+  const { data, error } = await client
+    .from("local_reading_progress")
+    .select("local_book_id, progress")
+    .eq("user_id", userData.user.id);
+
+  if (error) {
+    throw new Error(
+      `Não foi possível carregar o progresso das obras locais: ${error.message}`,
+    );
+  }
+
+  return new Map(data.map(({ local_book_id, progress }) => [local_book_id, progress]));
+}
+
+export async function getLocalBookProgress(
+  localBookId: string,
+): Promise<number> {
+  const client = await getSupabaseClient();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) {
+    throw new Error(
+      `Não foi possível identificar sua sessão para abrir a obra local: ${userError.message}`,
+    );
+  }
+  if (!userData.user) {
+    throw new Error("Sua sessão expirou. Entre novamente para abrir esta obra.");
+  }
+
+  const { data, error } = await client
+    .from("local_reading_progress")
+    .select("progress")
+    .eq("user_id", userData.user.id)
+    .eq("local_book_id", localBookId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(
+      `Não foi possível carregar o progresso da obra local: ${error.message}`,
+    );
+  }
+
+  return data?.progress ?? 0;
+}
+
+export async function saveLocalBookProgress(
+  localBookId: string,
+  progress: number,
+): Promise<void> {
+  const client = await getSupabaseClient();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) {
+    throw new Error(
+      `Não foi possível identificar sua sessão para salvar o progresso local: ${userError.message}`,
+    );
+  }
+  if (!userData.user) {
+    throw new Error("Sua sessão expirou. Entre novamente para salvar o progresso local.");
+  }
+
+  const { error } = await client.from("local_reading_progress").upsert(
+    {
+      user_id: userData.user.id,
+      local_book_id: localBookId,
+      progress: Math.max(0, Math.min(100, Math.round(progress))),
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,local_book_id" },
+  );
+
+  if (error) {
+    throw new Error(
+      `Não foi possível salvar o progresso da obra local: ${error.message}`,
+    );
+  }
+}

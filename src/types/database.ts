@@ -73,6 +73,24 @@ export interface Database {
         >;
         Relationships: [];
       };
+      local_reading_progress: {
+        Row: {
+          user_id: string;
+          local_book_id: string;
+          progress: number;
+          last_read_at: string;
+        };
+        Insert: {
+          user_id: string;
+          local_book_id: string;
+          progress: number;
+          last_read_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["local_reading_progress"]["Insert"]
+        >;
+        Relationships: [];
+      };
       user_storage: {
         Row: {
           user_id: string;
@@ -157,6 +175,8 @@ export type Book = Database["public"]["Tables"]["books"]["Row"];
 export type BookFileType = "pdf" | "epub" | "cbr" | "cbz";
 export type ReadingProgress =
   Database["public"]["Tables"]["reading_progress"]["Row"];
+export type LocalReadingProgress =
+  Database["public"]["Tables"]["local_reading_progress"]["Row"];
 export type UserStorage = Database["public"]["Tables"]["user_storage"]["Row"];
 export type RecentRead = Book &
   Pick<ReadingProgress, "progress" | "last_read_at">;

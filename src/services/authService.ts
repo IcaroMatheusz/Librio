@@ -150,7 +150,9 @@ export async function signUpWithEmail(
       password,
       options: {
         data: { username },
-        emailRedirectTo: `${window.location.origin}/dashboard`,
+        emailRedirectTo: window.librioDesktop
+          ? undefined
+          : `${window.location.origin}/dashboard`,
       },
     });
 

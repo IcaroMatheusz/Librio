@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 
 import { Loading } from "./components/Loading";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -15,14 +15,17 @@ import Upload from "./pages/library/UploadPage";
 import CreateVolume from "./pages/library/CreateVolumePage";
 import Reader from "./pages/reader/ReaderPage";
 import VolumeReader from "./pages/reader/VolumeReaderPage";
+import LocalReader from "./pages/reader/LocalReaderPage";
 
 const Download = lazy(() => import("./pages/download/DownloadPage"));
 
 export default function App() {
+  const Router = window.librioDesktop ? HashRouter : BrowserRouter;
+
   return (
     <>
       <AuthProvider>
-        <BrowserRouter>
+        <Router>
           <Routes>
             {/* Rotas públicas */}
             <Route element={<PublicOnlyRoute />}>
@@ -45,11 +48,15 @@ export default function App() {
                 }
               />
               <Route path="/reader/:bookId" element={<Reader />} />
+              <Route
+                path="/local-reader/:bookId"
+                element={<LocalReader />}
+              />
               <Route path="/volume/:volumeId" element={<VolumeReader />} />
             </Route>
             <Route path="*" element={<ErrorScreen />} />
           </Routes>
-        </BrowserRouter>
+        </Router>
       </AuthProvider>
     </>
   );
