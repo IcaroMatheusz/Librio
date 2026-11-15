@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
@@ -42,6 +43,7 @@ interface UploadResult {
 export default function UploadPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const bookFileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
@@ -69,6 +71,15 @@ export default function UploadPage() {
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0] ?? null;
+    if (!selectedFile) {
+      setResult({
+        type: "error",
+        message:
+          "O navegador não retornou o arquivo selecionado. Tente novamente e confirme a seleção no app de arquivos do dispositivo.",
+      });
+      return;
+    }
+
     setResult(null);
     setCoverPreparation(null);
     setCoverUrl(null);
@@ -76,7 +87,6 @@ export default function UploadPage() {
     setManualCoverFile(null);
     setManualCoverUrl(null);
 
-    if (!selectedFile) return;
     const extension = selectedFile.name.split(".").pop()?.toLowerCase();
     if (!["pdf", "epub", "cbr", "cbz"].includes(extension ?? "")) {
       setResult({
@@ -128,6 +138,9 @@ export default function UploadPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const selectedFile = file ?? bookFileInputRef.current?.files?.[0] ?? null;
+    const selectedTitle =
+      title.trim() || selectedFile?.name.replace(/\.[^.]+$/, "").trim() || "";
     if (!user) {
       setResult({
         type: "error",
@@ -135,20 +148,22 @@ export default function UploadPage() {
       });
       return;
     }
-    if (!file) {
+    if (!selectedFile) {
       setResult({
         type: "error",
         message: "Escolha um arquivo antes de enviar.",
       });
       return;
     }
-    if (!title.trim()) {
+    if (!selectedTitle) {
       setResult({
         type: "error",
         message: "Informe um título para a obra antes de enviar.",
       });
       return;
     }
+    if (!file) setFile(selectedFile);
+    if (!title.trim()) setTitle(selectedTitle);
 
     setResult(null);
     setCoverUrl(null);
@@ -164,7 +179,7 @@ export default function UploadPage() {
     let coverPreview: Blob | undefined;
     let coverUnavailable = false;
     let coverError: string | undefined;
-    const extension = file.name.split(".").pop()?.toLowerCase();
+    const extension = selectedFile.name.split(".").pop()?.toLowerCase();
     const canGenerateCover = ["pdf", "cbr", "cbz"].includes(extension ?? "");
     const onCoverProgress: CoverPreviewProgress = (percent, stage) => {
       setCoverPreparation({ percent, stage });
@@ -187,7 +202,10 @@ export default function UploadPage() {
           stage: "Lendo a primeira página para gerar a capa...",
         });
         try {
-          const cover = await createBookCoverPreview(file, onCoverProgress);
+          const cover = await createBookCoverPreview(
+            selectedFile,
+            onCoverProgress,
+          );
           coverPreview = cover;
           generatedCoverUrl = URL.createObjectURL(cover);
         } catch (caughtError) {
@@ -207,8 +225,8 @@ export default function UploadPage() {
       setUploadStage("Enviando arquivo...");
       const uploadedBook = await uploadBook(
         user.id,
-        file,
-        title,
+        selectedFile,
+        selectedTitle,
         author,
         setUploadProgress,
         coverPreview,
@@ -222,7 +240,7 @@ export default function UploadPage() {
       }
       setResult({
         type: "success",
-        message: `${title.trim()} foi adicionada à sua biblioteca.`,
+        message: `${selectedTitle} foi adicionada à sua biblioteca.`,
         coverUnavailable,
         coverError,
       });
@@ -300,22 +318,13 @@ export default function UploadPage() {
                 >
                   Arquivo da obra
                 </label>
-                <label
-                  className={`relative mt-2 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-within:ring-4 focus-within:ring-violet-300/10 ${
+                <div
+                  className={`mt-2 flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-within:ring-4 focus-within:ring-violet-300/10 ${
                     file
                       ? "border-violet-300/40 bg-violet-300/[0.07]"
                       : "border-white/15 bg-[#171A27]/70 hover:border-violet-300/40 hover:bg-violet-300/[0.04]"
-                  } ${uploading ? "cursor-not-allowed opacity-60" : ""}`}
+                  } ${uploading ? "opacity-60" : ""}`}
                 >
-                  <input
-                    id="book-file"
-                    type="file"
-                    accept=".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip"
-                    required
-                    disabled={uploading}
-                    onChange={handleFileChange}
-                    className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-                  />
                   <span className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
                     {file ? (
                       <Check aria-hidden="true" size={21} />
@@ -324,14 +333,25 @@ export default function UploadPage() {
                     )}
                   </span>
                   <span className="max-w-full break-all text-sm font-bold text-slate-100">
-                    {file ? file.name : "Clique para escolher seu arquivo"}
+                    {file ? "Arquivo selecionado" : "Escolha um arquivo"}
                   </span>
-                  <span className="mt-1 text-xs text-slate-400">
+                  <input
+                    ref={bookFileInputRef}
+                    id="book-file"
+                    type="file"
+                    accept=".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip"
+                    required
+                    disabled={uploading}
+                    aria-label="Selecionar arquivo da obra"
+                    onChange={handleFileChange}
+                    className="mt-3 block w-full max-w-full cursor-pointer text-left text-xs text-slate-300 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-violet-400 file:px-3 file:py-2 file:text-xs file:font-bold file:text-[#1d1930] hover:file:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 disabled:cursor-not-allowed"
+                  />
+                  <span className="mt-2 text-xs text-slate-400">
                     {file
                       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB · pronto para enviar`
                       : "PDF, EPUB, CBR ou CBZ · até 100 MB"}
                   </span>
-                </label>
+                </div>
               </div>
 
               <div>
