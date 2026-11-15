@@ -64,6 +64,8 @@ export default function DownloadPage() {
   const [activeCharacter, setActiveCharacter] = useState(0);
   const [desktopRelease, setDesktopRelease] =
     useState<DesktopReleaseState>({ status: "loading" });
+  const [mobileRelease, setMobileRelease] =
+    useState<DesktopReleaseState>({ status: "loading" });
   const character = CHARACTERS[activeCharacter];
 
   useEffect(() => {
@@ -84,6 +86,7 @@ export default function DownloadPage() {
         });
         if (response.status === 404) {
           setDesktopRelease({ status: "unavailable" });
+          setMobileRelease({ status: "unavailable" });
           return;
         }
         if (!response.ok) {
@@ -104,6 +107,22 @@ export default function DownloadPage() {
         ) {
           throw new Error("A release do GitHub não contém os dados esperados.");
         }
+        const apk = data.assets.find(
+          (asset): asset is { name: string; browser_download_url: string } =>
+            typeof asset === "object" &&
+            asset !== null &&
+            "name" in asset &&
+            typeof asset.name === "string" &&
+            asset.name.toLowerCase().endsWith(".apk") &&
+            "browser_download_url" in asset &&
+            typeof asset.browser_download_url === "string",
+        );
+        setMobileRelease(
+          apk
+            ? { status: "available", release: { version: data.tag_name, downloadUrl: apk.browser_download_url } }
+            : { status: "unavailable" },
+        );
+
         const installer = data.assets.find(
           (asset): asset is { name: string; browser_download_url: string } =>
             typeof asset === "object" &&
@@ -129,6 +148,7 @@ export default function DownloadPage() {
       } catch {
         if (!controller.signal.aborted) {
           setDesktopRelease({ status: "error" });
+          setMobileRelease({ status: "error" });
         }
       }
     }
@@ -308,13 +328,32 @@ export default function DownloadPage() {
               </span>
               <h3 className="mt-4 text-lg font-bold">Celular e tablet</h3>
               <p className="mt-2 text-sm leading-6 text-slate-400">
-                A versão móvel também está em preparação. Por enquanto, acesse
-                sua biblioteca pelo navegador.
+                Instale o APK para Android e leve suas obras na nuvem e no
+                aparelho para ler onde estiver.
               </p>
-              <p className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-emerald-200">
-                <Check aria-hidden="true" size={15} />
-                Obras sincronizadas pela nuvem na versão web
-              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                {mobileRelease.status === "available" ? (
+                  <a href={mobileRelease.release.downloadUrl} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+                    <Download aria-hidden="true" size={15} />
+                    Baixar APK ({mobileRelease.release.version})
+                  </a>
+                ) : (
+                  <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+                    <Download aria-hidden="true" size={15} />
+                    {mobileRelease.status === "loading" ? "Verificando APK…" : "Ver releases do Android"}
+                  </a>
+                )}
+                <p className="inline-flex items-center gap-2 text-xs font-bold text-emerald-200">
+                  <Check aria-hidden="true" size={15} />
+                  {mobileRelease.status === "available"
+                    ? `Versão ${mobileRelease.release.version} disponível`
+                    : mobileRelease.status === "error"
+                      ? "Consulte as releases no GitHub"
+                      : mobileRelease.status === "loading"
+                        ? "Verificando APK disponível..."
+                        : "APK ainda não publicado"}
+                </p>
+              </div>
             </article>
           </div>
         </section>

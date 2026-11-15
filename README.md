@@ -246,14 +246,24 @@ Copy-Item .env.example .env
 
 Preencha `EXPO_PUBLIC_SUPABASE_URL` e `EXPO_PUBLIC_SUPABASE_ANON_KEY` no
 arquivo `mobile/.env` e inicie com `npm run start`. Use a chave pública `anon`;
-nunca configure `service_role` no aplicativo.
+nunca configure `service_role` no aplicativo. Na configuração de autenticação
+do Supabase, adicione `librio://reset-password` à lista de URLs de
+redirecionamento permitidas para a recuperação de senha.
 
-A base móvel inclui cadastro, login, recuperação de senha, sessão persistente,
-listagem e envio de arquivos para a biblioteca cloud e catálogo de arquivos
-locais escolhidos em uma pasta no Android. O acesso à nuvem depende das mesmas
-tabelas, buckets e políticas RLS descritos acima. O leitor móvel nesta etapa
-abre PDFs; os leitores EPUB e CBR/CBZ, sincronização visual de progresso,
-volumes, perfil, capas e edição completa da biblioteca ainda precisam ser
-portados para componentes nativos. No iOS, o seletor padrão permite escolher
-arquivos, mas não concede varredura genérica de diretórios como o SAF do
-Android.
+O aplicativo usa a identidade visual do Librio, com tema escuro, detalhes
+violeta, transições animadas e artes em `src/assets/mobile`. Inclui cadastro,
+login, recuperação de senha, sessão persistente, perfil (nome, e-mail, senha e
+foto), logout, indicador da cota cloud, envio e busca de obras, edição de título
+e autor, exclusão, histórico de progresso sincronizado, montagem de volumes e
+catálogo local. No Android, uma pasta pode ser analisada pelo seletor de
+diretório; no iOS, arquivos são escolhidos individualmente. Os PDFs cloud abrem
+no visualizador embutido. EPUBs e quadrinhos cloud são baixados e abertos em um
+leitor compatível instalado no aparelho; as posições de leitura detalhadas e o
+leitor interno desses formatos ainda precisam de um port nativo.
+
+As versões desktop e Android são compiladas pelo workflow
+[`desktop-release.yml`](./.github/workflows/desktop-release.yml) ao enviar uma
+tag `v*`. O APK é anexado à mesma release do GitHub. A página `/download`
+consulta o APK da release mais recente e exibe o botão **Baixar APK** quando o
+artefato está disponível. O workflow reutiliza os secrets
+`VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` para configurar o build mobile.
