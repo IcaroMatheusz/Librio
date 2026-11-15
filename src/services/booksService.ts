@@ -15,6 +15,13 @@ export const COVERARTS_BUCKET = "coverarts";
 const BOOK_FIELDS =
   "id, user_id, title, author, description, cover_url, file_path, file_type, file_size, created_at, updated_at";
 
+const BOOK_FILE_MIME_TYPES: Record<BookFileType, string> = {
+  cbr: "application/vnd.comicbook-rar",
+  cbz: "application/vnd.comicbook+zip",
+  epub: "application/epub+zip",
+  pdf: "application/pdf",
+};
+
 function uploadFileWithProgress(
   signedUrl: string,
   file: Blob,
@@ -652,21 +659,32 @@ export async function uploadBook(
   const uploadedCoverPaths: string[] = [];
 
   try {
+    const uploadFile =
+      file.type === BOOK_FILE_MIME_TYPES[fileType]
+        ? file
+        : new Blob([file], { type: BOOK_FILE_MIME_TYPES[fileType] });
     await uploadStorageFile(
       client,
       filePath,
-      file,
+      uploadFile,
       file.name,
       (progress) =>
         onProgress(Math.round((progress * file.size) / totalSize)),
     );
   } catch (uploadError) {
     const cleanupError = await removeUploadedFiles(client, uploadedPaths);
+    const uploadErrorMessage =
+      uploadError instanceof Error
+        ? uploadError.message
+        : "Ocorreu um erro inesperado.";
+    const mimeTypeError = uploadErrorMessage.match(
+      /mime type ([\w.+-]+\/[\w.+-]+) is not supported/i,
+    );
     throw new Error(
       `Não foi possível enviar a obra: ${
-        uploadError instanceof Error
-          ? uploadError.message
-          : "Ocorreu um erro inesperado."
+        mimeTypeError
+          ? `o bucket "${BOOKS_BUCKET}" do Supabase não permite o tipo ${mimeTypeError[1]}. Adicione esse MIME type aos tipos permitidos nas configurações do Storage.`
+          : uploadErrorMessage
       }${
         cleanupError
           ? ` Também não foi possível limpar os arquivos enviados: ${cleanupError}`

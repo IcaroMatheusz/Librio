@@ -29,3 +29,12 @@ last-read timestamp in `local_reading_progress`. Apply the SQL migration in
 
 The web library continues to show cloud books only. Local books are listed and
 opened only by the desktop app.
+
+To upload CBR comics to Supabase, apply
+`supabase/migrations/20261115003000_allow_cbr_storage_mime_type.sql`. It adds
+`application/vnd.comicbook-rar` to the existing MIME allowlist of the `books`
+bucket without changing the other allowed types.
+
+To upload CBZ comics, also apply
+`supabase/migrations/20261115003100_allow_cbz_storage_mime_type.sql`. It adds
+`application/vnd.comicbook+zip` to the same allowlist.
