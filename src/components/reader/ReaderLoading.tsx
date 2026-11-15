@@ -36,9 +36,14 @@ export function ReaderLoading({
       aria-live="polite"
       className={`flex min-h-0 flex-1 flex-col items-center justify-center rounded-3xl border px-6 py-10 text-center shadow-2xl ${
         isNight
-          ? "border-white/[0.08] bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.12),transparent_65%),#151827] shadow-black/20"
-          : "border-stone-300 bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.12),transparent_65%),#fffaf0] shadow-stone-900/10"
+          ? "border-white/[0.08] shadow-black/20"
+          : "border-stone-300 shadow-stone-900/10"
       }`}
+      style={{
+        backgroundColor: isNight ? "#151827" : "#fffaf0",
+        backgroundImage:
+          "radial-gradient(ellipse at top, rgba(139, 92, 246, 0.12), transparent 65%)",
+      }}
     >
       <div className="relative grid size-28 place-items-center">
         <svg
