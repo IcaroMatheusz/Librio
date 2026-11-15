@@ -142,6 +142,11 @@ publicação automaticamente.
 
 ## Publicar uma release no GitHub
 
+Antes da primeira release, cadastre `VITE_SUPABASE_URL` e
+`VITE_SUPABASE_ANON_KEY` em **Settings → Secrets and variables → Actions →
+New repository secret**. O workflow usa esses valores no build desktop e
+interrompe a publicação se algum estiver faltando.
+
 O repositório já tem o workflow
 [`desktop-release.yml`](./.github/workflows/desktop-release.yml). Ao receber
 uma tag começando com `v`, ele compila o instalador para Windows e publica os
