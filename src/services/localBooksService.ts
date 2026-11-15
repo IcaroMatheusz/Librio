@@ -28,10 +28,13 @@ export async function saveLocalBookCover(
   bookId: string,
   cover: Blob,
 ): Promise<LocalBook> {
-  return getDesktopBridge().saveLocalBookCover(
-    bookId,
-    new Uint8Array(await cover.arrayBuffer()),
-  );
+  const bridge = getDesktopBridge();
+  if (typeof bridge.saveLocalBookCover !== "function") {
+    throw new Error(
+      "A integração do app está desatualizada. Feche todas as janelas do Librio Desktop e abra o aplicativo novamente para atualizar o suporte a capas locais.",
+    );
+  }
+  return bridge.saveLocalBookCover(bookId, new Uint8Array(await cover.arrayBuffer()));
 }
 
 export async function getLocalBookById(bookId: string): Promise<LocalBook> {
