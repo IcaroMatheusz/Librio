@@ -28,6 +28,14 @@ import { UploadResultModal } from "../../components/library/UploadResultModal";
 import { useAuth } from "../../contexts/useAuth";
 import { uploadBook } from "../../services/booksService";
 import {
+  getNativeBookFileInput,
+  isNativeBookPickerPending,
+  markNativeBookPickerBackgrounded,
+  setNativeBookPickerPending,
+  subscribeToNativeBookFilePicker,
+  wasNativeBookPickerBackgrounded,
+} from "../../services/nativeBookFilePicker";
+import {
   createBookCoverPreview,
   prepareManualBookCover,
   type CoverPreviewProgress,
@@ -54,6 +62,7 @@ interface UploadDiagnostic {
 
 const UPLOAD_DIAGNOSTICS_KEY = "librio-upload-diagnostics-v1";
 const MAX_UPLOAD_DIAGNOSTICS = 120;
+const UPLOAD_DOCUMENT_INSTANCE_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 function readUploadDiagnostics(): UploadDiagnostic[] {
   try {
@@ -86,7 +95,6 @@ export default function UploadPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const bookFileInputRef = useRef<HTMLInputElement>(null);
-  const bookFileChangeHandlerRef = useRef<(file: File | null) => void>(() => {});
   const diagnosticRecorderRef = useRef<(code: string, message: string, details?: string) => void>(() => {});
   const pickerPendingRef = useRef(false);
   const pickerBlurredRef = useRef(false);
@@ -113,8 +121,10 @@ export default function UploadPage() {
   const [manualCoverUrl, setManualCoverUrl] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<UploadDiagnostic[]>(readUploadDiagnostics);
   const diagnosticsRef = useRef(diagnostics);
-  const [pickerPending, setPickerPending] = useState(false);
-  const [pickerStatus, setPickerStatus] = useState("");
+  const [pickerPending, setPickerPending] = useState(isNativeBookPickerPending);
+  const [pickerStatus, setPickerStatus] = useState(() =>
+    isNativeBookPickerPending() ? "Retomando o seletor de arquivos do dispositivo…" : "",
+  );
   const [diagnosticCopyStatus, setDiagnosticCopyStatus] = useState("");
 
   const recordDiagnostic = useCallback((code: string, message: string, details?: string) => {
@@ -155,14 +165,35 @@ export default function UploadPage() {
       connection?: { effectiveType?: string };
       userAgentData?: { platform?: string };
     };
+    const navigation = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
     recordDiagnostic(
       "PAGE_READY",
       "Tela de envio pronta.",
-      `online=${navigator.onLine}; conexão=${browser.connection?.effectiveType ?? "indisponível"}; plataforma=${browser.userAgentData?.platform ?? navigator.platform}; viewport=${window.innerWidth}x${window.innerHeight}; sessão=${user ? "ativa" : "ausente"}`,
+      `documento=${UPLOAD_DOCUMENT_INSTANCE_ID}; navegação=${navigation?.type ?? "indisponível"}; online=${navigator.onLine}; conexão=${browser.connection?.effectiveType ?? "indisponível"}; plataforma=${browser.userAgentData?.platform ?? navigator.platform}; viewport=${window.innerWidth}x${window.innerHeight}; sessão=${user ? "ativa" : "ausente"}`,
     );
     // Log only safe browser metadata; never include tokens or signed URLs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const handlePageHide = (event: PageTransitionEvent) => {
+      recordDiagnostic("DOCUMENT_PAGEHIDE", "O navegador ocultou ou descarregou o documento.", `persisted=${event.persisted}; documento=${UPLOAD_DOCUMENT_INSTANCE_ID}`);
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      const navigation = performance.getEntriesByType("navigation")[0] as
+        | PerformanceNavigationTiming
+        | undefined;
+      recordDiagnostic("DOCUMENT_PAGESHOW", "O navegador mostrou o documento.", `persisted=${event.persisted}; navegação=${navigation?.type ?? "indisponível"}; documento=${UPLOAD_DOCUMENT_INSTANCE_ID}`);
+    };
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [recordDiagnostic]);
 
   useEffect(() => {
     const browser = navigator as Navigator & {
@@ -244,122 +275,132 @@ export default function UploadPage() {
   }, [recordDiagnostic]);
 
   useEffect(() => {
-    // Keep the native file input outside React's managed tree. Android's
-    // document picker can detach React-owned inputs before delivering FileList.
-    const input = document.createElement("input");
-    input.id = "book-file";
-    input.type = "file";
-    input.accept =
-      ".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip";
-    input.tabIndex = -1;
-    input.setAttribute("aria-label", "Selecionar arquivo da obra");
-    input.style.position = "fixed";
-    input.style.left = "-10000px";
-    input.style.top = "0";
-    input.style.width = "1px";
-    input.style.height = "1px";
-    input.style.opacity = "0";
-    input.style.pointerEvents = "none";
+    // Keep the native input alive across UploadPage remounts while Android's
+    // document picker is in the foreground.
+    const input = getNativeBookFileInput();
+    bookFileInputRef.current = input;
+    const pendingAtMount = isNativeBookPickerPending();
+    pickerPendingRef.current = pendingAtMount;
+    pickerBlurredRef.current = pendingAtMount && wasNativeBookPickerBackgrounded();
 
-    const processNativeSelection = () => {
-      const selectedFile = input.files?.[0] ?? null;
+    const handleNativePickerEvent = (event: {
+      type: "input" | "change" | "cancel";
+      file: File | null;
+      filesCount: number;
+    }) => {
+      const eventCode = event.type === "input" ? "NATIVE_INPUT" : event.type === "change" ? "NATIVE_CHANGE" : "PICKER_CANCEL";
+      const message = event.type === "cancel"
+        ? "O seletor de arquivos foi cancelado pelo usuário."
+        : event.type === "input"
+          ? event.file
+            ? "Evento input do seletor nativo entregou um arquivo."
+            : "Evento input do seletor nativo sem arquivo."
+          : event.file
+            ? "Evento change do seletor nativo entregou um arquivo."
+            : "Evento change do seletor nativo chegou sem arquivo.";
       diagnosticRecorderRef.current(
-        "NATIVE_CHANGE",
-        selectedFile
-          ? "Evento change do seletor nativo entregou um arquivo."
-          : "Evento change do seletor nativo chegou sem arquivo.",
-        `files.length=${input.files?.length ?? 0}${selectedFile ? `; ${getFileDiagnostic(selectedFile)}` : ""}`,
+        eventCode,
+        message,
+        `files.length=${event.filesCount}${event.file ? `; ${getFileDiagnostic(event.file)}` : ""}`,
       );
+      if (event.type === "input") return;
+
       pickerPendingRef.current = false;
       setPickerPending(false);
-      setPickerStatus("");
+      setNativeBookPickerPending(false);
+      pickerBlurredRef.current = false;
       if (pickerReturnTimerRef.current !== null) {
         window.clearTimeout(pickerReturnTimerRef.current);
         pickerReturnTimerRef.current = null;
       }
-      if (!selectedFile) {
+      if (event.type === "cancel") {
+        setPickerStatus("Seleção cancelada. Nenhum arquivo foi enviado.");
+        return;
+      }
+      if (!event.file) {
         setPickerStatus("O seletor voltou sem arquivo. Se você cancelou, pode escolher novamente quando quiser.");
         return;
       }
-      bookFileChangeHandlerRef.current(selectedFile);
-      // Allow selecting the same file again; React already holds the File.
-      window.setTimeout(() => {
-        input.value = "";
-      }, 0);
-    };
-
-    const logNativeInput = () => {
-      const selectedFile = input.files?.[0] ?? null;
-      diagnosticRecorderRef.current(
-        "NATIVE_INPUT",
-        selectedFile
-          ? "Evento input do seletor nativo entregou um arquivo."
-          : "Evento input do seletor nativo sem arquivo.",
-        `files.length=${input.files?.length ?? 0}${selectedFile ? `; ${getFileDiagnostic(selectedFile)}` : ""}`,
-      );
-    };
-
-    const handlePickerCancel = () => {
-      pickerPendingRef.current = false;
-      setPickerPending(false);
-      if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
-      setPickerStatus("Seleção cancelada. Nenhum arquivo foi enviado.");
-      diagnosticRecorderRef.current("PICKER_CANCEL", "O seletor de arquivos foi cancelado pelo usuário.");
+      setPickerStatus("");
+      handleFileChange(event.file);
     };
 
     const handleWindowBlur = () => {
-      if (pickerPendingRef.current) pickerBlurredRef.current = true;
+      if (isNativeBookPickerPending()) {
+        pickerBlurredRef.current = true;
+        markNativeBookPickerBackgrounded();
+      }
     };
     const handleWindowFocus = () => {
-      if (!pickerPendingRef.current || !pickerBlurredRef.current) return;
+      if (!isNativeBookPickerPending() || !pickerBlurredRef.current) return;
       pickerBlurredRef.current = false;
       if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
       pickerReturnTimerRef.current = window.setTimeout(() => {
-        if (!pickerPendingRef.current) return;
+        if (!isNativeBookPickerPending()) return;
         pickerPendingRef.current = false;
         setPickerPending(false);
+        setNativeBookPickerPending(false);
         setPickerStatus("O seletor fechou sem retornar um arquivo. Tente novamente e aguarde a confirmação do app de arquivos.");
         diagnosticRecorderRef.current(
           "PICKER_RETURNED_EMPTY",
           "O navegador recuperou o foco, mas não recebeu arquivo nem evento change do seletor.",
           `online=${navigator.onLine}; visibility=${document.visibilityState}`,
         );
-      }, 1800);
+      }, 10_000);
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden" && pickerPendingRef.current) {
+      if (document.visibilityState === "hidden" && isNativeBookPickerPending()) {
         pickerBlurredRef.current = true;
+        markNativeBookPickerBackgrounded();
         diagnosticRecorderRef.current("PICKER_HIDDEN", "A página foi para segundo plano enquanto o seletor estava aberto.");
       } else if (document.visibilityState === "visible") {
         handleWindowFocus();
       }
     };
 
-    input.addEventListener("input", logNativeInput);
-    input.addEventListener("change", processNativeSelection);
-    input.addEventListener("cancel", handlePickerCancel);
+    const unsubscribeFromNativePicker = subscribeToNativeBookFilePicker(handleNativePickerEvent);
     window.addEventListener("blur", handleWindowBlur);
     window.addEventListener("focus", handleWindowFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    document.body.appendChild(input);
-    bookFileInputRef.current = input;
+    if (pendingAtMount && wasNativeBookPickerBackgrounded() && document.visibilityState === "visible") {
+      pickerBlurredRef.current = true;
+      handleWindowFocus();
+    } else if (pendingAtMount) {
+      pickerReturnTimerRef.current = window.setTimeout(() => {
+        if (!isNativeBookPickerPending()) return;
+        const likelyBlocked = !pickerBlurredRef.current && document.visibilityState === "visible";
+        setPickerStatus(
+          likelyBlocked
+            ? "O seletor ainda não respondeu. O navegador pode ter bloqueado a abertura; tente tocar novamente."
+            : "O seletor ainda não retornou um arquivo. Aguarde ou cancele e tente novamente.",
+        );
+        diagnosticRecorderRef.current(
+          "PICKER_TIMEOUT",
+          "O seletor continuou pendente após a tela de envio ser retomada.",
+          `visibility=${document.visibilityState}; online=${navigator.onLine}`,
+        );
+      }, 60_000);
+    }
+    recordDiagnostic(
+      "UPLOAD_COMPONENT_MOUNT",
+      "Tela de envio montada.",
+      `documento=${UPLOAD_DOCUMENT_INSTANCE_ID}; seletorPendente=${pendingAtMount}; visibilidade=${document.visibilityState}`,
+    );
 
     return () => {
-      input.removeEventListener("input", logNativeInput);
-      input.removeEventListener("change", processNativeSelection);
-      input.removeEventListener("cancel", handlePickerCancel);
+      recordDiagnostic(
+        "UPLOAD_COMPONENT_UNMOUNT",
+        "Tela de envio desmontada.",
+        `documento=${UPLOAD_DOCUMENT_INSTANCE_ID}; seletorPendente=${isNativeBookPickerPending()}; visibilidade=${document.visibilityState}`,
+      );
+      unsubscribeFromNativePicker();
       window.removeEventListener("blur", handleWindowBlur);
       window.removeEventListener("focus", handleWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
-      input.remove();
       if (bookFileInputRef.current === input) bookFileInputRef.current = null;
     };
-  }, []);
-
-  useEffect(() => {
-    bookFileChangeHandlerRef.current = handleFileChange;
-  }, [handleFileChange]);
+  }, [handleFileChange, recordDiagnostic]);
 
   function openBookFilePicker() {
     if (uploading) return;
@@ -375,6 +416,7 @@ export default function UploadPage() {
     if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
     input.value = "";
     pickerPendingRef.current = true;
+    setNativeBookPickerPending(true);
     setPickerPending(true);
     pickerBlurredRef.current = false;
     setPickerStatus("Aguardando o seletor de arquivos do dispositivo…");
@@ -385,7 +427,7 @@ export default function UploadPage() {
       `input conectado=${document.body.contains(input)}; protocolo=${location.protocol}`,
     );
     pickerReturnTimerRef.current = window.setTimeout(() => {
-      if (!pickerPendingRef.current) return;
+      if (!isNativeBookPickerPending()) return;
       const likelyBlocked = !pickerBlurredRef.current && document.visibilityState === "visible";
       setPickerStatus(
         likelyBlocked
@@ -405,6 +447,7 @@ export default function UploadPage() {
     } catch (caughtError) {
       pickerPendingRef.current = false;
       setPickerPending(false);
+      setNativeBookPickerPending(false);
       if (pickerReturnTimerRef.current !== null) window.clearTimeout(pickerReturnTimerRef.current);
       setPickerStatus("");
       const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
