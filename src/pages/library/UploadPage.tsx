@@ -44,10 +44,8 @@ export default function UploadPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const bookFileInputRef = useRef<HTMLInputElement>(null);
-  const nativeBookFileInputsRef = useRef(new WeakSet<HTMLInputElement>());
   const bookFileChangeHandlerRef = useRef<(file: File | null) => void>(() => {});
   const [file, setFile] = useState<File | null>(null);
-  const [bookFileInputKey, setBookFileInputKey] = useState(0);
   const [isBookFileDragging, setIsBookFileDragging] = useState(false);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
@@ -83,9 +81,6 @@ export default function UploadPage() {
       return;
     }
 
-    // Some Android pickers return a detached input. Remount it after keeping
-    // the File in React state so the next selection has a fresh DOM input.
-    setBookFileInputKey((key) => key + 1);
     setResult(null);
     setCoverPreparation(null);
     setCoverUrl(null);
@@ -119,19 +114,57 @@ export default function UploadPage() {
   bookFileChangeHandlerRef.current = handleFileChange;
 
   useEffect(() => {
-    const input = bookFileInputRef.current;
-    if (!input || nativeBookFileInputsRef.current.has(input)) return;
+    // Keep the native file input outside React's managed tree. Android's
+    // document picker can detach React-owned inputs before delivering FileList.
+    const input = document.createElement("input");
+    input.id = "book-file";
+    input.type = "file";
+    input.accept =
+      ".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip";
+    input.tabIndex = -1;
+    input.setAttribute("aria-label", "Selecionar arquivo da obra");
+    input.style.position = "fixed";
+    input.style.left = "-10000px";
+    input.style.top = "0";
+    input.style.width = "1px";
+    input.style.height = "1px";
+    input.style.opacity = "0";
+    input.style.pointerEvents = "none";
 
-    // Android file pickers can dispatch `change` after detaching the input
-    // from React's event root. Keep this native listener on the original input
-    // through rerenders so it can still read the returned FileList.
-    const handleNativeFileChange = () => {
-      bookFileChangeHandlerRef.current(input.files?.[0] ?? null);
+    const processNativeSelection = () => {
+      const selectedFile = input.files?.[0] ?? null;
+      if (!selectedFile) return;
+      bookFileChangeHandlerRef.current(selectedFile);
+      // Allow selecting the same file again; React already holds the File.
+      input.value = "";
     };
 
-    nativeBookFileInputsRef.current.add(input);
-    input.addEventListener("change", handleNativeFileChange);
-  });
+    input.addEventListener("input", processNativeSelection);
+    input.addEventListener("change", processNativeSelection);
+    document.body.appendChild(input);
+    bookFileInputRef.current = input;
+
+    return () => {
+      input.removeEventListener("input", processNativeSelection);
+      input.removeEventListener("change", processNativeSelection);
+      input.remove();
+      if (bookFileInputRef.current === input) bookFileInputRef.current = null;
+    };
+  }, []);
+
+  function openBookFilePicker() {
+    if (uploading) return;
+    const input = bookFileInputRef.current;
+    if (!input) {
+      setResult({
+        type: "error",
+        message: "Não foi possível abrir o seletor. Recarregue a página e tente novamente.",
+      });
+      return;
+    }
+    input.value = "";
+    input.click();
+  }
 
   function handleManualCoverChange(event: ChangeEvent<HTMLInputElement>) {
     const selectedCover = event.target.files?.[0] ?? null;
@@ -341,8 +374,18 @@ export default function UploadPage() {
                 >
                   Arquivo da obra
                 </label>
-                <label
-                  htmlFor="book-file"
+                <div
+                  role="button"
+                  tabIndex={uploading ? -1 : 0}
+                  aria-label={file ? `Arquivo selecionado: ${file.name}` : "Escolher arquivo da obra"}
+                  aria-disabled={uploading}
+                  onClick={openBookFilePicker}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openBookFilePicker();
+                    }
+                  }}
                   onDragOver={(event) => {
                     event.preventDefault();
                     if (!uploading) setIsBookFileDragging(true);
@@ -363,7 +406,7 @@ export default function UploadPage() {
                     if (uploading) return;
                     handleFileChange(event.dataTransfer.files?.[0] ?? null);
                   }}
-                  className={`mt-2 flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-within:ring-4 focus-within:ring-violet-300/10 ${
+                  className={`group mt-2 flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 ${
                     uploading
                       ? "cursor-not-allowed opacity-60"
                       : isBookFileDragging
@@ -383,17 +426,9 @@ export default function UploadPage() {
                   <span className="max-w-full break-all text-sm font-bold text-slate-100">
                     {file ? "Arquivo selecionado" : "Escolha um arquivo"}
                   </span>
-                  <input
-                    key={bookFileInputKey}
-                    ref={bookFileInputRef}
-                    id="book-file"
-                    type="file"
-                    accept=".pdf,.epub,.cbr,.cbz,application/pdf,application/epub+zip,application/vnd.comicbook-rar,application/vnd.comicbook+zip"
-                    required
-                    disabled={uploading}
-                    aria-label="Selecionar arquivo da obra"
-                    className="mx-auto mt-3 block w-fit max-w-full cursor-pointer text-center text-xs text-slate-300 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-violet-400 file:px-3 file:py-2 file:text-xs file:font-bold file:text-[#1d1930] hover:file:bg-violet-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 disabled:cursor-not-allowed"
-                  />
+                  <span className="mt-3 inline-flex min-h-10 items-center justify-center rounded-lg bg-violet-400 px-4 py-2 text-sm font-bold text-[#1d1930] transition group-hover:bg-violet-300">
+                    {file ? "Trocar arquivo" : "Escolher arquivo"}
+                  </span>
                   <span className="mt-2 text-xs text-slate-400">
                     {file
                       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB · pronto para enviar`
@@ -404,7 +439,7 @@ export default function UploadPage() {
                       Clique ou toque para escolher; no computador, você também pode arrastar o arquivo até aqui.
                     </span>
                   )}
-                </label>
+                </div>
               </div>
 
               <div>
