@@ -133,23 +133,33 @@ async function extractCbr(
   }
 
   const pages: ArchivePage[] = [];
-  for (const [index, header] of fileHeaders.entries()) {
-    const extractedFiles = extractor.extract({ files: [header.name] });
-    const file = Array.from(extractedFiles.files).find(
-      (entry) => entry.extraction && !entry.fileHeader.flags.directory,
-    );
-    if (file?.extraction) {
-      const imageBytes = new Uint8Array(file.extraction.length);
-      imageBytes.set(file.extraction);
-      pages.push({
-        name: file.fileHeader.name,
-        blob: new Blob([imageBytes], {
-          type: getImageType(file.fileHeader.name),
-        }),
-      });
+  const imageNames = new Set(fileHeaders.map((header) => header.name));
+  const extractedFiles = extractor.extract({
+    files: (header) =>
+      !header.flags.directory && imageNames.has(header.name),
+  });
+  let completed = 0;
+  for (const file of extractedFiles.files) {
+    if (!file.extraction || file.fileHeader.flags.directory) {
+      throw new Error(
+        `Não foi possível extrair a página “${file.fileHeader.name}” deste CBR.`,
+      );
     }
-    onProgress?.(index + 1, fileHeaders.length);
+    const imageBytes = new Uint8Array(file.extraction.length);
+    imageBytes.set(file.extraction);
+    pages.push({
+      name: file.fileHeader.name,
+      blob: new Blob([imageBytes], {
+        type: getImageType(file.fileHeader.name),
+      }),
+    });
+    completed += 1;
+    onProgress?.(completed, fileHeaders.length);
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  }
+
+  if (pages.length === 0) {
+    throw new Error("Não foi possível extrair páginas de imagem deste CBR.");
   }
 
   return sortPages(pages);
@@ -227,11 +237,12 @@ async function extractFirstCbrPage(
     throw new Error("A primeira página deste CBR é grande demais para gerar a capa.");
   }
 
-  const extractedFiles = extractor.extract({ files: [firstImage.name] });
-  const extractedCover = Array.from(extractedFiles.files).find(
-    (file) => file.extraction && !file.fileHeader.flags.directory,
-  );
-  if (!extractedCover?.extraction) {
+  const extractedFiles = extractor.extract({
+    files: (header) =>
+      !header.flags.directory && header.name === firstImage.name,
+  });
+  const extractedCover = extractedFiles.files.next().value;
+  if (!extractedCover?.extraction || extractedCover.fileHeader.flags.directory) {
     throw new Error("Não foi possível extrair a primeira página deste CBR.");
   }
 

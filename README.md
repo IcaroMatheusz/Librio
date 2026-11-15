@@ -38,3 +38,12 @@ bucket without changing the other allowed types.
 To upload CBZ comics, also apply
 `supabase/migrations/20261115003100_allow_cbz_storage_mime_type.sql`. It adds
 `application/vnd.comicbook+zip` to the same allowlist.
+
+If uploads fail with the `books_file_type_valid` constraint, apply
+`supabase/migrations/20261115003300_allow_comic_file_types.sql` to allow CBR
+and CBZ alongside PDF and EPUB.
+
+The upload form accepts files up to 100 MB. Apply
+`supabase/migrations/20261115003200_increase_books_bucket_file_size_limit.sql`
+to set the `books` bucket limit to 100 MB as well. The Supabase project-wide
+upload limit must also allow files of that size.

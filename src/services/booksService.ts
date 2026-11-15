@@ -703,10 +703,15 @@ export async function uploadBook(
     const mimeTypeError = uploadErrorMessage.match(
       /mime type ([\w.+-]+\/[\w.+-]+) is not supported/i,
     );
+    const sizeLimitError = /exceeded the maximum allowed size/i.test(
+      uploadErrorMessage,
+    );
     throw new Error(
       `Não foi possível enviar a obra: ${
         mimeTypeError
           ? `o bucket "${BOOKS_BUCKET}" do Supabase não permite o tipo ${mimeTypeError[1]}. Adicione esse MIME type aos tipos permitidos nas configurações do Storage.`
+          : sizeLimitError
+            ? `o arquivo ultrapassa o limite de tamanho do bucket "${BOOKS_BUCKET}". Aplique a migração 20261115003200_increase_books_bucket_file_size_limit.sql e confira se o limite global do seu plano Supabase permite arquivos de até 100 MB.`
           : uploadErrorMessage
       }${
         cleanupError
