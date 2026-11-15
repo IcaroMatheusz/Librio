@@ -13,6 +13,7 @@ import { LocalBooksSection } from "../../components/library/LocalBooksSection";
 import { LibraryNotice, type LibraryNoticeData } from "../../components/library/LibraryNotice";
 import { LibraryPageHeader } from "../../components/library/LibraryPageHeader";
 import { VolumeCard } from "../../components/library/VolumeCard";
+import { StorageIndicator } from "../../components/StorageIndicator";
 import {
   deleteBook,
   getBooks,
@@ -40,6 +41,8 @@ import {
   type BookVolume,
 } from "../../services/volumesService";
 import { getLocalReadingProgress } from "../../services/progressService";
+import { getUserStorage } from "../../services/storageService";
+import type { UserStorage } from "../../types/database";
 
 export default function LibraryPage() {
   const desktopApp = isDesktopApp();
@@ -48,6 +51,7 @@ export default function LibraryPage() {
   const [localBooks, setLocalBooks] = useState<
     Awaited<ReturnType<typeof getLocalBooks>>
   >([]);
+  const [storage, setStorage] = useState<UserStorage | null>(null);
   const [localProgress, setLocalProgress] = useState<Map<string, number>>(
     new Map(),
   );
@@ -59,6 +63,7 @@ export default function LibraryPage() {
   const [localProgressError, setLocalProgressError] = useState<string | null>(
     null,
   );
+  const [storageError, setStorageError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [dialog, setDialog] = useState<BookActionDialogState | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
@@ -114,6 +119,19 @@ export default function LibraryPage() {
     }
   }, []);
 
+  async function refreshStorage() {
+    try {
+      setStorage(await getUserStorage());
+      setStorageError(null);
+    } catch (caughtError) {
+      setStorageError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível atualizar o espaço de armazenamento.",
+      );
+    }
+  }
+
   useEffect(() => {
     let active = true;
 
@@ -124,14 +142,21 @@ export default function LibraryPage() {
       setVolumeError(null);
       setLocalError(null);
       setLocalProgressError(null);
-      const [booksResult, volumesResult, localBooksResult, localProgressResult] =
-        await Promise.allSettled([
+      setStorageError(null);
+      const [
+        booksResult,
+        volumesResult,
+        localBooksResult,
+        localProgressResult,
+        storageResult,
+      ] = await Promise.allSettled([
         getBooks(),
         getVolumes(),
         desktopApp ? getLocalBooks() : Promise.resolve([]),
         desktopApp
           ? getLocalReadingProgress()
           : Promise.resolve(new Map<string, number>()),
+        getUserStorage(),
       ]);
       if (active) {
         if (booksResult.status === "fulfilled") {
@@ -150,6 +175,15 @@ export default function LibraryPage() {
             volumesResult.reason instanceof Error
               ? volumesResult.reason.message
               : "Não foi possível carregar seus volumes.",
+          );
+        }
+        if (storageResult.status === "fulfilled") {
+          setStorage(storageResult.value);
+        } else {
+          setStorageError(
+            storageResult.reason instanceof Error
+              ? storageResult.reason.message
+              : "Não foi possível carregar o espaço de armazenamento.",
           );
         }
         if (desktopApp) {
@@ -351,6 +385,7 @@ export default function LibraryPage() {
       setBooks((currentBooks) =>
         currentBooks.filter((book) => book.id !== dialog.book.id),
       );
+      await refreshStorage();
       setDialog(null);
       setActionNotice(
         warning ? { message: warning, type: "warning" } : null,
@@ -380,6 +415,7 @@ export default function LibraryPage() {
           currentBook.id === updatedBook.id ? updatedBook : currentBook,
         ),
       );
+      await refreshStorage();
       setActionNotice({
         message:
           warning ?? `A capa de “${updatedBook.title}” foi atualizada.`,
@@ -411,6 +447,18 @@ export default function LibraryPage() {
           bookCount={books.length + volumes.length + localBooks.length}
           loading={loading}
         />
+        {storage && (
+          <div className="mb-9">
+            <StorageIndicator storage={storage} />
+          </div>
+        )}
+        {storageError && (
+          <div className="mt-4">
+            <LibraryNotice
+              notice={{ message: storageError, type: "warning" }}
+            />
+          </div>
+        )}
 
         <section aria-labelledby="collection-title">
           {desktopApp && (

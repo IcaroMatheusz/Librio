@@ -10,6 +10,7 @@ import {
   protocol,
   shell,
 } from "electron";
+import { autoUpdater } from "electron-updater";
 import type { LocalBookFileType } from "../shared/desktop.js";
 
 import {
@@ -265,10 +266,41 @@ async function createMainWindow(): Promise<void> {
   }
 }
 
+function configureAutoUpdates(): void {
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on("error", (error) => {
+    console.error("Não foi possível verificar/baixar atualizações do Librio:", error);
+  });
+  autoUpdater.on("update-downloaded", async (info) => {
+    if (!mainWindow) {
+      autoUpdater.quitAndInstall();
+      return;
+    }
+
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Atualização do Librio pronta",
+      message: `A versão ${info.version} foi baixada e está pronta para instalar.`,
+      buttons: ["Reiniciar agora", "Mais tarde"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+  void autoUpdater.checkForUpdates().catch((error: unknown) => {
+    console.error("Não foi possível verificar atualizações do Librio:", error);
+  });
+}
+
 void app.whenReady().then(async () => {
   registerLocalBookHandlers();
   registerLocalBookProtocol();
   await createMainWindow();
+  configureAutoUpdates();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

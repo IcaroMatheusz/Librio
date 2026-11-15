@@ -12,6 +12,9 @@ powered by Electron.
 
 The desktop app uses the same React interface while keeping Electron's Node.js
 access in its main process. The renderer receives only a restricted preload API.
+Pushing a `v*` tag publishes a Windows installer to GitHub Releases. Packaged
+desktop installations check for releases at startup, download new versions in
+the background, and prompt to restart to install them.
 
 ## Local library and reading progress
 

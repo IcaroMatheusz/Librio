@@ -15,6 +15,21 @@ import harryPotter from "../../assets/harrypotter.png";
 import spawn from "../../assets/spawn.webp";
 import bleach from "../../assets/bleach.png";
 
+const LATEST_RELEASE_API =
+  "https://api.github.com/repos/IcaroMatheusz/Librio/releases/latest";
+const RELEASES_URL = "https://github.com/IcaroMatheusz/Librio/releases/latest";
+
+interface DesktopRelease {
+  version: string;
+  downloadUrl: string;
+}
+
+type DesktopReleaseState =
+  | { status: "loading" }
+  | { status: "available"; release: DesktopRelease }
+  | { status: "unavailable" }
+  | { status: "error" };
+
 const CHARACTERS = [
   {
     character: "Spawn",
@@ -47,6 +62,8 @@ const CHARACTERS = [
 
 export default function DownloadPage() {
   const [activeCharacter, setActiveCharacter] = useState(0);
+  const [desktopRelease, setDesktopRelease] =
+    useState<DesktopReleaseState>({ status: "loading" });
   const character = CHARACTERS[activeCharacter];
 
   useEffect(() => {
@@ -55,6 +72,69 @@ export default function DownloadPage() {
     }, 3000);
 
     return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadLatestRelease() {
+      try {
+        const response = await fetch(LATEST_RELEASE_API, {
+          headers: { Accept: "application/vnd.github+json" },
+          signal: controller.signal,
+        });
+        if (response.status === 404) {
+          setDesktopRelease({ status: "unavailable" });
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`GitHub respondeu com HTTP ${response.status}.`);
+        }
+
+        const release: unknown = await response.json();
+        if (typeof release !== "object" || release === null) {
+          throw new Error("A resposta do GitHub é inválida.");
+        }
+        const data = release as {
+          tag_name?: unknown;
+          assets?: unknown;
+        };
+        if (
+          typeof data.tag_name !== "string" ||
+          !Array.isArray(data.assets)
+        ) {
+          throw new Error("A release do GitHub não contém os dados esperados.");
+        }
+        const installer = data.assets.find(
+          (asset): asset is { name: string; browser_download_url: string } =>
+            typeof asset === "object" &&
+            asset !== null &&
+            "name" in asset &&
+            typeof asset.name === "string" &&
+            asset.name.toLowerCase().endsWith(".exe") &&
+            asset.name.toLowerCase().includes("setup") &&
+            "browser_download_url" in asset &&
+            typeof asset.browser_download_url === "string",
+        );
+        if (!installer) {
+          setDesktopRelease({ status: "unavailable" });
+          return;
+        }
+        setDesktopRelease({
+          status: "available",
+          release: {
+            version: data.tag_name,
+            downloadUrl: installer.browser_download_url,
+          },
+        });
+      } catch {
+        if (!controller.signal.aborted) {
+          setDesktopRelease({ status: "error" });
+        }
+      }
+    }
+
+    void loadLatestRelease();
+    return () => controller.abort();
   }, []);
 
   return (
@@ -108,7 +188,7 @@ export default function DownloadPage() {
             <div className="relative z-20 row-start-1 flex flex-col items-start px-5 pb-[320px] pt-8 sm:px-10 sm:pt-10 lg:col-start-1 lg:justify-center lg:px-14 lg:py-12">
               <span className="inline-flex items-center gap-2 rounded-full border border-violet-200/25 bg-[#171426]/65 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-violet-100 sm:text-xs sm:tracking-[0.18em]">
                 <Sparkles aria-hidden="true" size={14} />
-                Em preparação
+                Aplicativo para desktop
               </span>
               <h1
                 id="download-title"
@@ -120,26 +200,35 @@ export default function DownloadPage() {
                 Onde você estiver.
               </h1>
               <p className="mt-4 max-w-lg text-sm leading-6 text-violet-100/85 sm:text-base sm:leading-7">
-                Estamos preparando o aplicativo Librio para desktop e
-                dispositivos móveis. Os instaladores ainda não estão disponíveis
-                para download.
+                Baixe o Librio para Windows e leia sua biblioteca local ou na
+                nuvem. O aplicativo verifica e instala atualizações publicadas
+                no GitHub automaticamente.
               </p>
               <p className="mt-3 max-w-lg text-xs leading-5 text-slate-400 sm:text-sm">
                 Enquanto isso, continue usando o Librio pela web. A leitura no
-                navegador funciona com as obras enviadas e armazenadas na sua
-                biblioteca na nuvem.
+                navegador funciona com as obras da sua biblioteca na nuvem.
               </p>
 
               <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  disabled
-                  aria-describedby="download-title"
-                  className="inline-flex min-h-11 cursor-not-allowed items-center gap-2 rounded-xl bg-violet-300/70 px-4 py-2.5 text-sm font-extrabold text-[#211a34]/80 opacity-80 sm:px-5"
-                >
-                  <Download aria-hidden="true" size={17} />
-                  Downloads em breve
-                </button>
+                {desktopRelease.status === "available" ? (
+                  <a
+                    href={desktopRelease.release.downloadUrl}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-300 px-4 py-2.5 text-sm font-extrabold text-[#211a34] transition hover:bg-violet-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:px-5"
+                  >
+                    <Download aria-hidden="true" size={17} />
+                    Baixar para Windows ({desktopRelease.release.version})
+                  </a>
+                ) : (
+                  <a
+                    href={RELEASES_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-300 px-4 py-2.5 text-sm font-extrabold text-[#211a34] transition hover:bg-violet-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:px-5"
+                  >
+                    <Download aria-hidden="true" size={17} />
+                    Baixar versão desktop
+                  </a>
+                )}
                 <Link
                   to="/library"
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-bold text-slate-100 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:px-5"
@@ -188,7 +277,7 @@ export default function DownloadPage() {
               id="platforms-title"
               className="mt-1.5 text-xl font-extrabold sm:text-2xl"
             >
-              Aplicativos em desenvolvimento
+              Aplicativos Librio
             </h2>
           </header>
           <div className="grid gap-4 sm:grid-cols-2 sm:gap-5">
@@ -196,14 +285,21 @@ export default function DownloadPage() {
               <span className="inline-flex size-11 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
                 <Monitor aria-hidden="true" size={22} />
               </span>
-              <h3 className="mt-4 text-lg font-bold">Desktop</h3>
+              <h3 className="mt-4 text-lg font-bold">Desktop para Windows</h3>
               <p className="mt-2 text-sm leading-6 text-slate-400">
-                Estamos preparando uma versão para computadores. O instalador
-                será publicado quando estiver pronto.
+                Instale o aplicativo para ler arquivos locais e acessar sua
+                biblioteca. As atualizações são baixadas automaticamente quando
+                uma nova release é publicada.
               </p>
               <p className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-violet-200">
-                <Sparkles aria-hidden="true" size={14} />
-                Download em breve
+                <Check aria-hidden="true" size={15} />
+                {desktopRelease.status === "available"
+                  ? `Versão ${desktopRelease.release.version} disponível`
+                  : desktopRelease.status === "error"
+                    ? "Consulte as releases no GitHub"
+                    : desktopRelease.status === "loading"
+                      ? "Verificando versão disponível..."
+                      : "Primeiro instalador ainda não publicado"}
               </p>
             </article>
             <article className="rounded-2xl border border-white/[0.08] bg-[#202435]/90 p-5 sm:p-6">
