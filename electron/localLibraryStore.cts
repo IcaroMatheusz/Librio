@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { access, readFile, rename, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 
 import type { LocalBook, LocalBookFileType } from "../shared/desktop.js";
@@ -15,6 +23,8 @@ interface StoredLocalBook {
 }
 
 const BOOKS_FILE_NAME = "local-books.json";
+const LOCAL_COVERS_DIRECTORY = "local-book-covers";
+const MAX_LOCAL_COVER_SIZE = 10 * 1024 * 1024;
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
@@ -100,12 +110,35 @@ async function isAvailable(filePath: string): Promise<boolean> {
   }
 }
 
-function toLocalBook(book: StoredLocalBook, available: boolean): LocalBook {
+function getLocalBookCoverPath(userDataPath: string, bookId: string): string {
+  return join(userDataPath, LOCAL_COVERS_DIRECTORY, `${bookId}.jpg`);
+}
+
+async function toLocalBook(
+  userDataPath: string,
+  book: StoredLocalBook,
+  available: boolean,
+): Promise<LocalBook> {
+  const coverPath = getLocalBookCoverPath(userDataPath, book.id);
+  let coverUrl: string | null = null;
+  try {
+    const coverStat = await stat(coverPath);
+    if (coverStat.isFile()) {
+      coverUrl = `librio-local://cover/${book.id}?v=${coverStat.mtimeMs}`;
+    }
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== "ENOENT") {
+      throw new Error(
+        `Não foi possível carregar a capa local de “${book.title}”: ${error instanceof Error ? error.message : "erro desconhecido"}`,
+      );
+    }
+  }
+
   return {
     id: book.id,
     title: book.title,
     author: book.author,
-    cover_url: null,
+    cover_url: coverUrl,
     file_type: book.file_type,
     file_size: book.file_size,
     added_at: book.added_at,
@@ -119,7 +152,7 @@ export async function listLocalBooks(
   const books = await readBooks(userDataPath);
   return Promise.all(
     books.map(async (book) =>
-      toLocalBook(book, await isAvailable(book.file_path)),
+      toLocalBook(userDataPath, book, await isAvailable(book.file_path)),
     ),
   );
 }
@@ -171,7 +204,50 @@ export async function addLocalBooks(
     await writeBooks(userDataPath, [...books, ...addedBooks]);
   }
 
-  return addedBooks.map((book) => toLocalBook(book, true));
+  return Promise.all(
+    addedBooks.map((book) => toLocalBook(userDataPath, book, true)),
+  );
+}
+
+export async function saveLocalBookCover(
+  userDataPath: string,
+  bookId: string,
+  cover: Uint8Array,
+): Promise<LocalBook> {
+  const books = await readBooks(userDataPath);
+  const book = books.find((item) => item.id === bookId);
+  if (!book) throw new Error("Esta obra não existe na biblioteca local.");
+  if (
+    cover.byteLength < 3 ||
+    cover.byteLength > MAX_LOCAL_COVER_SIZE ||
+    cover[0] !== 0xff ||
+    cover[1] !== 0xd8 ||
+    cover[2] !== 0xff
+  ) {
+    throw new Error("A capa local precisa ser uma imagem JPEG de até 10 MB.");
+  }
+
+  const coversDirectory = join(userDataPath, LOCAL_COVERS_DIRECTORY);
+  const coverPath = getLocalBookCoverPath(userDataPath, bookId);
+  const temporaryPath = `${coverPath}.${randomUUID()}.tmp`;
+  try {
+    await mkdir(coversDirectory, { recursive: true });
+    await writeFile(temporaryPath, cover, { flag: "wx" });
+    await rename(temporaryPath, coverPath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw new Error(
+      `Não foi possível salvar a capa local: ${error instanceof Error ? error.message : "erro desconhecido"}`,
+    );
+  }
+
+  const updatedBook = (await listLocalBooks(userDataPath)).find(
+    (item) => item.id === bookId,
+  );
+  if (!updatedBook) {
+    throw new Error("Não foi possível recarregar a obra local após salvar a capa.");
+  }
+  return updatedBook;
 }
 
 export async function removeLocalBook(
@@ -184,6 +260,7 @@ export async function removeLocalBook(
     throw new Error("Esta obra não existe na biblioteca local.");
   }
   await writeBooks(userDataPath, remainingBooks);
+  await rm(getLocalBookCoverPath(userDataPath, bookId), { force: true });
 }
 
 export async function getLocalBookPath(
@@ -212,4 +289,29 @@ export async function getLocalBookPath(
   }
 
   return book.file_path;
+}
+
+export async function getLocalBookCoverPathForBook(
+  userDataPath: string,
+  bookId: string,
+): Promise<string> {
+  const books = await readBooks(userDataPath);
+  if (!books.some((item) => item.id === bookId)) {
+    throw new Error("Esta obra não existe na biblioteca local.");
+  }
+
+  const coverPath = getLocalBookCoverPath(userDataPath, bookId);
+  try {
+    const coverStat = await stat(coverPath);
+    if (!coverStat.isFile()) throw new Error("A capa local não é um arquivo.");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      throw new Error("Esta obra ainda não possui uma capa local.");
+    }
+    throw new Error(
+      `Não foi possível abrir a capa local: ${error instanceof Error ? error.message : "erro desconhecido"}`,
+    );
+  }
+
+  return coverPath;
 }

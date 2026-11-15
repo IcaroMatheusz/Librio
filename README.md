@@ -19,10 +19,12 @@ Local books are references to files in their original locations. Librio stores
 the catalog and file paths on the computer; removing an entry from the app does
 not delete its original file. Moving a file makes its entry unavailable until
 it is added again.
+PDF and comic-book covers are generated locally and stored on the computer;
+local book covers can also be replaced with an image file from the computer.
 
-Local file contents and paths are never uploaded. Supabase stores only the
-authenticated user's opaque local book ID, reading progress, and last-read
-timestamp in `local_reading_progress`. Apply the SQL migration in
+Local file contents, paths, and cover images are never uploaded. Supabase stores
+only the authenticated user's opaque local book ID, reading progress, and
+last-read timestamp in `local_reading_progress`. Apply the SQL migration in
 `supabase/migrations` before enabling local reading progress.
 
 The web library continues to show cloud books only. Local books are listed and

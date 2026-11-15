@@ -35,6 +35,19 @@ function comparePageNames(first: string, second: string): number {
   });
 }
 
+async function hasZipSignature(archive: Blob): Promise<boolean> {
+  const signature = new Uint8Array(
+    await archive.slice(0, 4).arrayBuffer(),
+  );
+  return (
+    signature[0] === 0x50 &&
+    signature[1] === 0x4b &&
+    ((signature[2] === 0x03 && signature[3] === 0x04) ||
+      (signature[2] === 0x05 && signature[3] === 0x06) ||
+      (signature[2] === 0x07 && signature[3] === 0x08))
+  );
+}
+
 async function extractCbz(
   archive: Blob,
   onProgress?: ArchiveProgress,
@@ -86,6 +99,10 @@ async function extractCbr(
   archive: Blob,
   onProgress?: ArchiveProgress,
 ): Promise<ArchivePage[]> {
+  if (await hasZipSignature(archive)) {
+    return extractCbz(archive, onProgress);
+  }
+
   const [{ createExtractorFromData }, wasmResponse] = await Promise.all([
     import("node-unrar-js/esm/index.esm.js"),
     fetch(unrarWasmUrl),
@@ -179,6 +196,10 @@ async function extractFirstCbrPage(
   archive: Blob,
   onProgress?: ArchiveProgress,
 ): Promise<ArchivePage> {
+  if (await hasZipSignature(archive)) {
+    return extractFirstCbzPage(archive, onProgress);
+  }
+
   onProgress?.(0, 1);
   const [{ createExtractorFromData }, wasmResponse] = await Promise.all([
     import("node-unrar-js/esm/index.esm.js"),

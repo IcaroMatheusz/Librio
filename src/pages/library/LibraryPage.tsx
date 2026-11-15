@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -21,11 +21,18 @@ import {
 } from "../../services/booksService";
 import {
   addLocalBooks,
+  getLocalBookFile,
   getLocalBooks,
   isDesktopApp,
   removeLocalBook,
+  saveLocalBookCover,
 } from "../../services/localBooksService";
+import {
+  createBookCoverPreview,
+  prepareManualBookCover,
+} from "../../services/coverPreviewService";
 import type { Book } from "../../types/database";
+import type { LocalBook } from "../../../shared/desktop";
 import {
   deleteVolume as deleteVolumeService,
   getVolumes,
@@ -61,6 +68,49 @@ export default function LibraryPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [coverBusyId, setCoverBusyId] = useState<string | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
+  const localCoverJobs = useRef(new Set<string>());
+
+  const ensureLocalBookCovers = useCallback(async (booksToCheck: LocalBook[]) => {
+    for (const book of booksToCheck) {
+      if (
+        !book.available ||
+        book.cover_url ||
+        book.file_type === "epub" ||
+        localCoverJobs.current.has(book.id)
+      ) {
+        continue;
+      }
+
+      localCoverJobs.current.add(book.id);
+      setCoverBusyId(book.id);
+      try {
+        const file = new File(
+          [await getLocalBookFile(book.id)],
+          `${book.title}.${book.file_type}`,
+        );
+        const cover = await createBookCoverPreview(file);
+        const savedBook = await saveLocalBookCover(book.id, cover);
+        setLocalBooks((currentBooks) =>
+          currentBooks.map((item) =>
+            item.id === savedBook.id ? savedBook : item,
+          ),
+        );
+      } catch (caughtError) {
+        const reason =
+          caughtError instanceof Error
+            ? caughtError.message
+            : "erro desconhecido";
+        setLocalError(
+          `Não foi possível gerar a capa de “${book.title}”: ${reason} Você ainda pode selecionar uma imagem pelo botão Capa.`,
+        );
+      } finally {
+        localCoverJobs.current.delete(book.id);
+        setCoverBusyId((currentId) =>
+          currentId === book.id ? null : currentId,
+        );
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -103,6 +153,7 @@ export default function LibraryPage() {
         if (desktopApp) {
           if (localBooksResult.status === "fulfilled") {
             setLocalBooks(localBooksResult.value);
+            void ensureLocalBookCovers(localBooksResult.value);
           } else {
             setLocalError(
               localBooksResult.reason instanceof Error
@@ -131,14 +182,16 @@ export default function LibraryPage() {
     return () => {
       active = false;
     };
-  }, [desktopApp, reloadKey]);
+  }, [desktopApp, ensureLocalBookCovers, reloadKey]);
 
   async function handleAddLocalBooks() {
     setLocalBusy(true);
     setLocalError(null);
     try {
       await addLocalBooks();
-      setLocalBooks(await getLocalBooks());
+      const updatedBooks = await getLocalBooks();
+      setLocalBooks(updatedBooks);
+      void ensureLocalBookCovers(updatedBooks);
     } catch (caughtError) {
       setLocalError(
         caughtError instanceof Error
@@ -147,6 +200,28 @@ export default function LibraryPage() {
       );
     } finally {
       setLocalBusy(false);
+    }
+  }
+
+  async function handleLocalCoverSelect(book: LocalBook, file: File) {
+    setCoverBusyId(book.id);
+    setLocalError(null);
+    try {
+      const cover = await prepareManualBookCover(file);
+      const updatedBook = await saveLocalBookCover(book.id, cover);
+      setLocalBooks((currentBooks) =>
+        currentBooks.map((currentBook) =>
+          currentBook.id === updatedBook.id ? updatedBook : currentBook,
+        ),
+      );
+    } catch (caughtError) {
+      setLocalError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : `Não foi possível atualizar a capa de “${book.title}”.`,
+      );
+    } finally {
+      setCoverBusyId(null);
     }
   }
 
@@ -316,8 +391,12 @@ export default function LibraryPage() {
               busy={localBusy}
               error={localError}
               progressError={localProgressError}
+              coverBusyId={coverBusyId}
               onAdd={() => void handleAddLocalBooks()}
               onRemove={(book) => void handleRemoveLocalBook(book.id)}
+              onCoverSelect={(book, file) =>
+                void handleLocalCoverSelect(book, file)
+              }
               onRetry={() => setReloadKey((key) => key + 1)}
             />
           )}

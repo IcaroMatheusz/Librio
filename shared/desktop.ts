@@ -4,7 +4,7 @@ export interface LocalBook {
   id: string;
   title: string;
   author: string;
-  cover_url: null;
+  cover_url: string | null;
   file_type: LocalBookFileType;
   file_size: number;
   added_at: string;
@@ -15,5 +15,6 @@ export interface DesktopBridge {
   listLocalBooks(): Promise<LocalBook[]>;
   addLocalBooks(): Promise<LocalBook[]>;
   removeLocalBook(bookId: string): Promise<void>;
+  saveLocalBookCover(bookId: string, cover: Uint8Array): Promise<LocalBook>;
   getLocalBookUrl(bookId: string): string;
 }

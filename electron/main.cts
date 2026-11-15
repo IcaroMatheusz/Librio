@@ -14,9 +14,11 @@ import type { LocalBookFileType } from "../shared/desktop.js";
 
 import {
   addLocalBooks,
+  getLocalBookCoverPathForBook,
   getLocalBookPath,
   listLocalBooks,
   removeLocalBook,
+  saveLocalBookCover,
 } from "./localLibraryStore.cjs";
 
 protocol.registerSchemesAsPrivileged([
@@ -84,6 +86,19 @@ function registerLocalBookHandlers(): void {
     }
     return removeLocalBook(app.getPath("userData"), bookId);
   });
+
+  ipcMain.handle(
+    "local-books:save-cover",
+    (_event, bookId: unknown, cover: unknown) => {
+      if (typeof bookId !== "string" || !/^[0-9a-f-]{36}$/i.test(bookId)) {
+        throw new Error("O identificador da obra local é inválido.");
+      }
+      if (!(cover instanceof Uint8Array)) {
+        throw new Error("O arquivo da capa local é inválido.");
+      }
+      return saveLocalBookCover(app.getPath("userData"), bookId, cover);
+    },
+  );
 }
 
 function registerLocalBookProtocol(): void {
@@ -91,7 +106,7 @@ function registerLocalBookProtocol(): void {
     const url = new URL(request.url);
     const bookId = url.pathname.slice(1);
     if (
-      url.hostname !== "book" ||
+      (url.hostname !== "book" && url.hostname !== "cover") ||
       !/^[0-9a-f-]{36}$/i.test(bookId) ||
       (request.method !== "GET" && request.method !== "HEAD")
     ) {
@@ -99,6 +114,55 @@ function registerLocalBookProtocol(): void {
     }
 
     try {
+      if (url.hostname === "cover") {
+        const coverPath = await getLocalBookCoverPathForBook(
+          app.getPath("userData"),
+          bookId,
+        );
+        if (request.method === "HEAD") {
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "Cache-Control": "no-store",
+              "Content-Type": "image/jpeg",
+            },
+          });
+        }
+        const coverStream = createReadStream(coverPath);
+        const iterator = coverStream[Symbol.asyncIterator]();
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              try {
+                const result = await iterator.next();
+                if (result.done) {
+                  controller.close();
+                } else {
+                  controller.enqueue(new Uint8Array(result.value));
+                }
+              } catch (error) {
+                controller.error(error);
+              }
+            },
+            async cancel() {
+              await iterator.return?.();
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+              "Cache-Control": "no-store",
+              "Content-Type": "image/jpeg",
+              "Cross-Origin-Resource-Policy": "cross-origin",
+            },
+          },
+        );
+      }
+
+      if (url.hostname !== "book") {
+        return new Response("Not found", { status: 404 });
+      }
       const filePath = await getLocalBookPath(app.getPath("userData"), bookId);
       const extension = extname(filePath).slice(1).toLowerCase() as LocalBookFileType;
       const headers = new Headers({

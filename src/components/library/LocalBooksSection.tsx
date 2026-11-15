@@ -10,8 +10,10 @@ interface LocalBooksSectionProps {
   busy: boolean;
   error: string | null;
   progressError: string | null;
+  coverBusyId: string | null;
   onAdd: () => void;
   onRemove: (book: LocalBook) => void;
+  onCoverSelect: (book: LocalBook, file: File) => void;
   onRetry: () => void;
 }
 
@@ -22,8 +24,10 @@ export function LocalBooksSection({
   busy,
   error,
   progressError,
+  coverBusyId,
   onAdd,
   onRemove,
+  onCoverSelect,
   onRetry,
 }: LocalBooksSectionProps) {
   return (
@@ -110,6 +114,9 @@ export function LocalBooksSection({
               progress={progressByBookId.get(book.id)}
               showFormat
               sourceLabel="Neste PC"
+              onCoverSelect={(file) => onCoverSelect(book, file)}
+              coverBusy={coverBusyId === book.id}
+              coverDisabled={busy || !book.available}
               statusMessage={
                 book.available
                   ? undefined

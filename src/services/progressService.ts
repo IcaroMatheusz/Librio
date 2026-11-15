@@ -7,6 +7,24 @@ export interface ProgressCounts {
   completed: number;
 }
 
+function getLocalProgressTableError(
+  error: { code?: string; message: string },
+  action: string,
+): Error {
+  if (
+    error.code === "PGRST205" &&
+    error.message.includes("local_reading_progress")
+  ) {
+    return new Error(
+      `A tabela de progresso das obras locais ainda não existe no Supabase. Para ${action}, execute o arquivo supabase/migrations/20261115000000_create_local_reading_progress.sql no SQL Editor do projeto Supabase. Depois, atualize esta página. O arquivo da obra e seu caminho não são enviados à nuvem.`,
+    );
+  }
+
+  return new Error(
+    `Não foi possível ${action} o progresso das obras locais: ${error.message}`,
+  );
+}
+
 export async function getBookProgress(
   bookId: string,
 ): Promise<number> {
@@ -150,9 +168,7 @@ export async function getLocalReadingProgress(): Promise<
     .eq("user_id", userData.user.id);
 
   if (error) {
-    throw new Error(
-      `Não foi possível carregar o progresso das obras locais: ${error.message}`,
-    );
+    throw getLocalProgressTableError(error, "carregar");
   }
 
   return new Map(data.map(({ local_book_id, progress }) => [local_book_id, progress]));
@@ -180,9 +196,7 @@ export async function getLocalBookProgress(
     .maybeSingle();
 
   if (error) {
-    throw new Error(
-      `Não foi possível carregar o progresso da obra local: ${error.message}`,
-    );
+    throw getLocalProgressTableError(error, "carregar");
   }
 
   return data?.progress ?? 0;
@@ -214,8 +228,6 @@ export async function saveLocalBookProgress(
   );
 
   if (error) {
-    throw new Error(
-      `Não foi possível salvar o progresso da obra local: ${error.message}`,
-    );
+    throw getLocalProgressTableError(error, "salvar");
   }
 }

@@ -24,6 +24,16 @@ export async function removeLocalBook(bookId: string): Promise<void> {
   return getDesktopBridge().removeLocalBook(bookId);
 }
 
+export async function saveLocalBookCover(
+  bookId: string,
+  cover: Blob,
+): Promise<LocalBook> {
+  return getDesktopBridge().saveLocalBookCover(
+    bookId,
+    new Uint8Array(await cover.arrayBuffer()),
+  );
+}
+
 export async function getLocalBookById(bookId: string): Promise<LocalBook> {
   const book = (await getLocalBooks()).find((item) => item.id === bookId);
   if (!book) throw new Error("Esta obra não existe na biblioteca local.");

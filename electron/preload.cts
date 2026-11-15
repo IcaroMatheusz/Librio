@@ -9,6 +9,8 @@ const desktopBridge: DesktopBridge = {
     ipcRenderer.invoke("local-books:add") as Promise<LocalBook[]>,
   removeLocalBook: (bookId) =>
     ipcRenderer.invoke("local-books:remove", bookId) as Promise<void>,
+  saveLocalBookCover: (bookId, cover) =>
+    ipcRenderer.invoke("local-books:save-cover", bookId, cover) as Promise<LocalBook>,
   getLocalBookUrl: (bookId) =>
     `librio-local://book/${encodeURIComponent(bookId)}`,
 };
