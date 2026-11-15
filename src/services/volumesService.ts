@@ -345,6 +345,27 @@ export async function updateVolumeAuthor(
   return data.author;
 }
 
+export async function renameVolume(
+  volumeId: string,
+  title: string,
+): Promise<string> {
+  const normalizedTitle = title.trim();
+  if (!normalizedTitle || normalizedTitle.length > 200) {
+    throw new Error("Informe um título com até 200 caracteres.");
+  }
+
+  const client = await getSupabaseClient();
+  const { data, error } = await client
+    .from("book_volumes")
+    .update({ title: normalizedTitle })
+    .eq("id", volumeId)
+    .select("title")
+    .single();
+
+  if (error) throw volumeSchemaError(error.message);
+  return data.title;
+}
+
 export async function getVolumeProgress(
   volumeId: string,
 ): Promise<VolumeProgress> {

@@ -14,6 +14,7 @@ import { LibraryNotice, type LibraryNoticeData } from "../../components/library/
 import { LibraryPageHeader } from "../../components/library/LibraryPageHeader";
 import { VolumeCard } from "../../components/library/VolumeCard";
 import { VolumeAuthorDialog } from "../../components/library/VolumeAuthorDialog";
+import { VolumeRenameDialog } from "../../components/library/VolumeRenameDialog";
 import { StorageIndicator } from "../../components/StorageIndicator";
 import {
   deleteBook,
@@ -39,6 +40,7 @@ import type { LocalBook } from "../../../shared/desktop";
 import {
   deleteVolume as deleteVolumeService,
   getVolumes,
+  renameVolume,
   updateVolumeAuthor,
   type BookVolume,
 } from "../../services/volumesService";
@@ -69,6 +71,9 @@ export default function LibraryPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [dialog, setDialog] = useState<BookActionDialogState | null>(null);
   const [editingVolume, setEditingVolume] = useState<BookVolume | null>(null);
+  const [renamingVolume, setRenamingVolume] = useState<BookVolume | null>(null);
+  const [volumeTitleDraft, setVolumeTitleDraft] = useState("");
+  const [volumeTitleError, setVolumeTitleError] = useState<string | null>(null);
   const [volumeAuthorDraft, setVolumeAuthorDraft] = useState("");
   const [volumeAuthorError, setVolumeAuthorError] = useState<string | null>(null);
   const [volumeDeleteWarning, setVolumeDeleteWarning] =
@@ -411,6 +416,42 @@ export default function LibraryPage() {
     setActionNotice(null);
   }
 
+  function openVolumeRenameDialog(volume: BookVolume) {
+    setRenamingVolume(volume);
+    setVolumeTitleDraft(volume.title);
+    setVolumeTitleError(null);
+    setActionNotice(null);
+  }
+
+  async function handleRenameVolume(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!renamingVolume) return;
+
+    setActionBusy(true);
+    setVolumeTitleError(null);
+    try {
+      const title = await renameVolume(renamingVolume.id, volumeTitleDraft);
+      setVolumes((current) =>
+        current.map((volume) =>
+          volume.id === renamingVolume.id ? { ...volume, title } : volume,
+        ),
+      );
+      setRenamingVolume(null);
+      setActionNotice({
+        message: `O volume foi renomeado para “${title}”.`,
+        type: "success",
+      });
+    } catch (caughtError) {
+      setVolumeTitleError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Não foi possível renomear o volume.",
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   function openDialog(type: BookActionDialogState["type"], book: Book) {
     setDialog({ type, book });
     setTitleDraft(book.title);
@@ -617,6 +658,7 @@ export default function LibraryPage() {
                     volume={volume}
                     deleting={actionBusy}
                     coverBusy={coverBusyId === volume.chapters[0]?.book.id}
+                    onRename={() => openVolumeRenameDialog(volume)}
                     onEditAuthor={() => openVolumeAuthorDialog(volume)}
                     onCoverSelect={(file) =>
                       void handleVolumeCoverSelect(volume, file)
@@ -675,6 +717,18 @@ export default function LibraryPage() {
           onChange={setVolumeAuthorDraft}
           onSubmit={handleUpdateVolumeAuthor}
           onClose={() => setEditingVolume(null)}
+        />
+      )}
+
+      {renamingVolume && (
+        <VolumeRenameDialog
+          currentTitle={renamingVolume.title}
+          title={volumeTitleDraft}
+          busy={actionBusy}
+          error={volumeTitleError}
+          onChange={setVolumeTitleDraft}
+          onSubmit={handleRenameVolume}
+          onClose={() => setRenamingVolume(null)}
         />
       )}
 

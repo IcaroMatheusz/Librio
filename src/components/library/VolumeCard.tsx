@@ -1,5 +1,12 @@
-import { useRef } from "react";
-import { ImagePlus, Layers3, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  ImagePlus,
+  Layers3,
+  Pencil,
+  Trash2,
+  UserRoundPen,
+} from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { BookVolume } from "../../services/volumesService";
@@ -8,6 +15,7 @@ interface VolumeCardProps {
   volume: BookVolume;
   deleting: boolean;
   coverBusy: boolean;
+  onRename: () => void;
   onEditAuthor: () => void;
   onCoverSelect: (file: File) => void;
   onDelete: () => void;
@@ -17,12 +25,26 @@ export function VolumeCard({
   volume,
   deleting,
   coverBusy,
+  onRename,
   onEditAuthor,
   onCoverSelect,
   onDelete,
 }: VolumeCardProps) {
   const coverInputRef = useRef<HTMLInputElement>(null);
   const coverUrl = volume.chapters[0]?.book.cover_url;
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setContextMenu(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [contextMenu]);
 
   return (
     <article
@@ -34,7 +56,10 @@ export function VolumeCard({
           return;
         }
         event.preventDefault();
-        onEditAuthor();
+        setContextMenu({
+          x: Math.min(event.clientX, window.innerWidth - 200),
+          y: Math.min(event.clientY, window.innerHeight - 52),
+        });
       }}
       className="group min-w-0 overflow-hidden rounded-2xl border border-violet-200/10 bg-[#202435] shadow-lg shadow-black/10 transition hover:-translate-y-1 hover:border-violet-300/30 hover:shadow-xl hover:shadow-violet-950/20"
     >
@@ -88,17 +113,9 @@ export function VolumeCard({
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={onEditAuthor}
-            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-violet-200"
-          >
-            <Pencil aria-hidden="true" size={13} />
-            Autor
-          </button>
-          <button
-            type="button"
-            disabled={coverBusy || volume.chapters.length === 0}
+            className="col-span-2 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-violet-200"
             onClick={() => coverInputRef.current?.click()}
-            className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-violet-200 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={coverBusy || volume.chapters.length === 0}
           >
             <ImagePlus aria-hidden="true" size={14} />
             {coverBusy ? "Salvando..." : "Capa"}
@@ -116,17 +133,53 @@ export function VolumeCard({
               event.target.value = "";
             }}
           />
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onRename}
+            aria-label={`Renomear volume ${volume.title}`}
+            className="inline-flex min-h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-white/10 bg-white/[0.03] px-1 text-[10px] font-semibold text-slate-200 transition hover:border-violet-200/20 hover:bg-violet-200/[0.07] hover:text-violet-100 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-50 sm:gap-1.5 sm:px-2 sm:text-xs"
+          >
+            <Pencil aria-hidden="true" size={14} className="shrink-0" />
+            <span>Renomear</span>
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onDelete}
+            aria-label={`Excluir volume ${volume.title}`}
+            className="inline-flex min-h-9 min-w-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-rose-200/10 bg-rose-200/[0.03] px-1 text-[10px] font-semibold text-rose-200 transition hover:border-rose-200/25 hover:bg-rose-200/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200 disabled:opacity-50 sm:gap-1.5 sm:px-2 sm:text-xs"
+          >
+            <Trash2 aria-hidden="true" size={14} />
+            <span>{deleting ? "Excluindo..." : "Excluir"}</span>
+          </button>
         </div>
-        <button
-          type="button"
-          disabled={deleting}
-          onClick={onDelete}
-          className="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-rose-200/10 bg-rose-200/[0.03] px-2 text-xs font-semibold text-rose-200 transition hover:border-rose-200/25 hover:bg-rose-200/[0.08] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-200 disabled:opacity-50"
-        >
-          <Trash2 aria-hidden="true" size={14} />
-          {deleting ? "Excluindo volume..." : "Excluir volume"}
-        </button>
       </footer>
+      {contextMenu &&
+        createPortal(
+          <>
+            <button
+              type="button"
+              aria-label="Fechar menu de contexto"
+              className="fixed inset-0 z-40 cursor-default"
+              onClick={() => setContextMenu(null)}
+            />
+            <button
+              type="button"
+              role="menuitem"
+              className="fixed z-50 inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-[#222638] px-4 py-2 text-sm font-semibold text-slate-100 shadow-xl shadow-black/40 transition hover:bg-violet-300/10 hover:text-violet-100 focus-visible:outline-2 focus-visible:outline-violet-200"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              onClick={() => {
+                setContextMenu(null);
+                onEditAuthor();
+              }}
+            >
+              <UserRoundPen aria-hidden="true" size={16} />
+              Editar autor
+            </button>
+          </>,
+          document.body,
+        )}
     </article>
   );
 }
