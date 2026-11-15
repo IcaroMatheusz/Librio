@@ -15,7 +15,11 @@ export function ReaderThemeToggle({
     <div
       role="group"
       aria-label="Tema de leitura"
-      className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-[#171A27]/70 p-1"
+      className={`inline-flex items-center gap-1 rounded-xl border p-1 ${
+        theme === "night"
+          ? "border-white/10 bg-[#171A27]/70"
+          : "border-stone-300 bg-white/80"
+      }`}
     >
       <button
         type="button"
@@ -23,10 +27,16 @@ export function ReaderThemeToggle({
         onClick={() => onChange("light")}
         aria-label="Tema claro"
         title="Tema claro"
-        className={`inline-flex size-9 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-200 ${
+        className={`inline-flex size-9 items-center justify-center rounded-lg transition focus-visible:outline-2 ${
+          theme === "night"
+            ? "focus-visible:outline-violet-200"
+            : "focus-visible:outline-violet-700"
+        } ${
           theme === "light"
-            ? "bg-amber-200/20 text-amber-100"
-            : "text-slate-400 hover:text-white"
+            ? "bg-amber-100 text-amber-800"
+            : theme === "night"
+              ? "text-slate-400 hover:text-white"
+              : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
         }`}
       >
         <Sun aria-hidden="true" size={16} />
@@ -37,10 +47,14 @@ export function ReaderThemeToggle({
         onClick={() => onChange("night")}
         aria-label="Tema noturno"
         title="Tema noturno"
-        className={`inline-flex size-9 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-200 ${
+        className={`inline-flex size-9 items-center justify-center rounded-lg transition focus-visible:outline-2 ${
+          theme === "night"
+            ? "focus-visible:outline-violet-200"
+            : "focus-visible:outline-violet-700"
+        } ${
           theme === "night"
             ? "bg-violet-300/15 text-violet-100"
-            : "text-slate-400 hover:text-white"
+            : "text-stone-600 hover:bg-stone-100 hover:text-stone-900"
         }`}
       >
         <Moon aria-hidden="true" size={16} />

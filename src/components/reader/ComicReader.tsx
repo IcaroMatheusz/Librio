@@ -9,8 +9,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Maximize,
-  Minus,
-  Plus,
 } from "lucide-react";
 
 import { ReaderLoading } from "./ReaderLoading";
@@ -21,6 +19,8 @@ import {
   type ReadingMode,
 } from "./ReaderModeToggle";
 import { ReaderThemeToggle } from "./ReaderThemeToggle";
+import { ReaderZoomControls } from "./ReaderZoomControls";
+import { getReaderScrollBehavior } from "./readerAccessibility";
 import {
   extractComicPages,
   type ArchivePage,
@@ -37,7 +37,30 @@ interface DisplayPage extends ArchivePage {
   url: string;
 }
 
+interface ImageDimensions {
+  width: number;
+  height: number;
+}
+
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+function getDisplayDimensions(
+  dimensions: ImageDimensions | undefined,
+  viewport: ImageDimensions,
+  zoom: number,
+  fitHeight: boolean,
+) {
+  if (!dimensions || viewport.width <= 0 || viewport.height <= 0) return null;
+
+  const fitScale = Math.min(
+    viewport.width / dimensions.width,
+    fitHeight ? viewport.height / dimensions.height : 1,
+  );
+  return {
+    width: Math.round(dimensions.width * fitScale * zoom),
+    height: Math.round(dimensions.height * fitScale * zoom),
+  };
+}
 
 export function ComicReader({
   fileType,
@@ -53,6 +76,9 @@ export function ComicReader({
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRequestRef = useRef(0);
   const [pages, setPages] = useState<DisplayPage[]>([]);
+  const [imageDimensions, setImageDimensions] = useState<
+    Record<string, ImageDimensions>
+  >({});
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [readingMode, setReadingMode] = useState<ReadingMode>("page");
@@ -65,6 +91,14 @@ export function ComicReader({
   const [saveAttempt, setSaveAttempt] = useState(0);
   const pinchZoom = usePinchZoom(zoom, setZoom);
   const { theme, setTheme } = useReaderTheme();
+
+  function recordImageDimensions(url: string, image: HTMLImageElement) {
+    if (!image.naturalWidth || !image.naturalHeight) return;
+    setImageDimensions((current) => ({
+      ...current,
+      [url]: { width: image.naturalWidth, height: image.naturalHeight },
+    }));
+  }
 
   useEffect(() => {
     function syncFullscreen() {
@@ -88,6 +122,19 @@ export function ComicReader({
     observer.observe(viewport);
     return () => observer.disconnect();
   }, [loading, readingMode]);
+
+  useEffect(() => {
+    const viewport = verticalViewportRef.current;
+    if (!viewport) return;
+    const frame = window.requestAnimationFrame(() => {
+      viewport.scrollLeft = Math.max(
+        0,
+        (viewport.scrollWidth - viewport.clientWidth) / 2,
+      );
+      if (readingMode === "page") viewport.scrollTop = 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [imageDimensions, pageIndex, readingMode, viewportSize, zoom]);
 
   useEffect(() => {
     if (!pages.length) return;
@@ -120,7 +167,10 @@ export function ComicReader({
         window.requestAnimationFrame(() => {
           verticalViewportRef.current
             ?.querySelector<HTMLElement>(`[data-page-index="${nextIndex}"]`)
-            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            ?.scrollIntoView({
+              behavior: getReaderScrollBehavior(),
+              block: "start",
+            });
         });
       }
     },
@@ -260,15 +310,26 @@ export function ComicReader({
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.target instanceof HTMLInputElement) return;
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest("input, select, textarea, a, [contenteditable='true']")
+      ) {
+        return;
+      }
       if (event.key === "ArrowLeft") {
         changePage(-1);
       } else if (event.key === "ArrowRight") {
         changePage(1);
       } else if (event.key === "+" || event.key === "=") {
-        setZoom((current) => Math.min(3, current + 0.1));
+        setZoom((current) =>
+          Math.min(3, Math.round((current + 0.1) * 10) / 10),
+        );
       } else if (event.key === "-") {
-        setZoom((current) => Math.max(0.5, current - 0.1));
+        setZoom((current) =>
+          Math.max(0.5, Math.round((current - 0.1) * 10) / 10),
+        );
+      } else if (event.key === "0") {
+        setZoom(1);
       }
     }
 
@@ -294,13 +355,19 @@ export function ComicReader({
         title={`Construindo páginas do ${fileType}`}
         detail={`${loadDetail} ${loadProgress}% concluído`}
         percent={loadProgress}
+        theme={theme}
       />
     );
   }
 
   if (error || pages.length === 0) {
     return (
-      <p role="alert" className="m-auto p-8 text-center text-rose-200">
+      <p
+        role="alert"
+        className={`m-auto p-8 text-center ${
+          theme === "night" ? "text-rose-200" : "text-rose-800"
+        }`}
+      >
         {error ?? "Este arquivo não contém páginas para exibir."}
       </p>
     );
@@ -312,7 +379,7 @@ export function ComicReader({
     <section
       ref={readerRef}
       aria-label="Leitor de quadrinhos"
-      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl shadow-black/25 ${
+      className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-2xl shadow-black/25 sm:rounded-2xl ${
         theme === "night"
           ? "border-white/10 bg-[#151827]"
           : "border-stone-300 bg-[#fffaf0]"
@@ -323,14 +390,18 @@ export function ComicReader({
       }`}
     >
       <div
-        className={`flex flex-wrap items-center justify-between gap-2 border-b px-2 py-2 backdrop-blur sm:px-4 ${
+        className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-2 py-2 backdrop-blur sm:px-4 ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/90"
             : "border-stone-300 bg-[#f2eadc]/95"
         }`}
       >
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <ReaderModeToggle mode={readingMode} onChange={setReadingMode} />
+          <ReaderModeToggle
+            mode={readingMode}
+            onChange={setReadingMode}
+            theme={theme}
+          />
           <ReaderThemeToggle theme={theme} onChange={setTheme} />
           <div className="flex items-center gap-1">
           <button
@@ -338,15 +409,28 @@ export function ComicReader({
             onClick={() => changePage(-1)}
             disabled={pageIndex === 0}
             aria-label="Página anterior"
-            className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
+            className={`inline-flex size-10 items-center justify-center rounded-xl transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
+              theme === "night"
+                ? "text-slate-200 hover:bg-white/10"
+                : "text-stone-700 hover:bg-stone-200"
+            }`}
           >
             <ArrowLeft aria-hidden="true" size={18} />
           </button>
           <span
             aria-live="polite"
-            className="min-w-20 text-center text-sm font-semibold tabular-nums text-slate-200"
+            className={`min-w-20 text-center text-sm font-semibold tabular-nums ${
+              theme === "night" ? "text-slate-200" : "text-stone-800"
+            }`}
           >
-            {pageIndex + 1} <span className="text-slate-500">/</span>{" "}
+            {pageIndex + 1}{" "}
+            <span
+              className={
+                theme === "night" ? "text-slate-500" : "text-stone-400"
+              }
+            >
+              /
+            </span>{" "}
             {pages.length}
           </span>
           <button
@@ -354,34 +438,18 @@ export function ComicReader({
             onClick={() => changePage(1)}
             disabled={pageIndex === pages.length - 1}
             aria-label="Próxima página"
-            className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
+            className={`inline-flex size-10 items-center justify-center rounded-xl transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
+              theme === "night"
+                ? "text-slate-200 hover:bg-white/10"
+                : "text-stone-700 hover:bg-stone-200"
+            }`}
           >
             <ArrowRight aria-hidden="true" size={18} />
           </button>
         </div>
 
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setZoom((current) => Math.max(0.5, current - 0.1))}
-            disabled={zoom <= 0.5}
-            aria-label="Diminuir zoom"
-            className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
-          >
-            <Minus aria-hidden="true" size={17} />
-          </button>
-          <span className="w-12 text-center text-xs tabular-nums text-slate-300">
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => setZoom((current) => Math.min(3, current + 0.1))}
-            disabled={zoom >= 3}
-            aria-label="Aumentar zoom"
-            className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
-          >
-            <Plus aria-hidden="true" size={17} />
-          </button>
+          <ReaderZoomControls zoom={zoom} theme={theme} onChange={setZoom} />
           <button
             type="button"
             onClick={() => {
@@ -401,7 +469,11 @@ export function ComicReader({
               }
             }}
             aria-label={isFullscreen ? "Sair da tela cheia" : "Alternar tela cheia"}
-            className="inline-flex size-10 items-center justify-center rounded-xl text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200"
+            className={`inline-flex size-10 items-center justify-center rounded-xl transition focus-visible:outline-2 focus-visible:outline-violet-500 ${
+              theme === "night"
+                ? "text-slate-200 hover:bg-white/10"
+                : "text-stone-700 hover:bg-stone-200"
+            }`}
           >
             <Maximize aria-hidden="true" size={17} />
           </button>
@@ -410,7 +482,8 @@ export function ComicReader({
       </div>
 
       <figure
-        className={`grid min-h-0 flex-1 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1 overflow-hidden p-2 sm:gap-3 sm:p-4 ${
+        aria-label={`Página ${pageIndex + 1} de ${pages.length}`}
+        className={`relative grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] items-stretch gap-1 overflow-hidden p-2 sm:grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] sm:gap-3 sm:p-4 ${
           theme === "night"
             ? "bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)]"
             : "bg-stone-200"
@@ -422,7 +495,11 @@ export function ComicReader({
           onClick={() => changePage(-1)}
           disabled={pageIndex === 0}
           aria-label="Página anterior"
-          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+          className={`absolute left-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:left-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
+            theme === "night"
+              ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
+              : "border-stone-300 bg-white/90 text-stone-700 hover:border-violet-300 hover:bg-violet-100"
+          }`}
         >
           <ArrowLeft aria-hidden="true" size={18} />
         </button>
@@ -436,29 +513,38 @@ export function ComicReader({
           onPointerCancel={pinchZoom.handlePointerCancel}
           className={`min-h-0 min-w-0 overflow-auto ${
             readingMode === "vertical"
-              ? `col-span-3 h-full space-y-0 overflow-y-auto ${
+              ? `col-span-1 h-full space-y-0 overflow-y-auto sm:col-span-3 ${
                   isFullscreen ? "overscroll-contain" : ""
                 }`
-              : `flex h-full ${zoom > 1 ? "items-start justify-start" : "items-center justify-center"}`
+              : "flex h-full items-stretch"
           }`}
-          style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+          style={{ touchAction: "pan-x pan-y" }}
         >
           {readingMode === "vertical" ? (
             pages.map((page, index) => (
               <div
                 key={`${page.name}-${index}`}
                 data-page-index={index}
-                className="flex w-full justify-center"
+                className="block w-full"
               >
                 <img
                   src={page.url}
                   alt={`Página ${index + 1} de ${pages.length}`}
                   loading={Math.abs(index - pageIndex) <= 2 ? "eager" : "lazy"}
                   decoding="async"
-                  className="block h-auto max-w-full object-contain"
+                  onLoad={(event) =>
+                    recordImageDimensions(page.url, event.currentTarget)
+                  }
+                  className="mx-auto block max-w-none object-contain"
                   style={{
-                    zoom,
                     transform: `scale(${pinchZoom.previewScale})`,
+                    transformOrigin: "center",
+                    ...(getDisplayDimensions(
+                      imageDimensions[page.url],
+                      viewportSize,
+                      zoom,
+                      false,
+                    ) ?? { maxWidth: "100%" }),
                   }}
                 />
               </div>
@@ -468,22 +554,19 @@ export function ComicReader({
               src={currentPage.url}
               alt={`Página ${pageIndex + 1} de ${pages.length}`}
               decoding="async"
-              className={`max-w-full cursor-pointer object-contain shadow-2xl shadow-black/40 ${
-                isFullscreen
-                  ? "max-h-[calc(100dvh-100px)]"
-                  : "max-h-[calc(100dvh-180px)]"
-              }`}
+              onLoad={(event) =>
+                recordImageDimensions(currentPage.url, event.currentTarget)
+              }
+              className="mx-auto my-0 block max-h-none max-w-none cursor-pointer object-contain shadow-2xl shadow-black/40"
               style={{
-                zoom,
                 transform: `scale(${pinchZoom.previewScale})`,
-                maxHeight:
-                  viewportSize.height > 0
-                    ? `${viewportSize.height}px`
-                    : undefined,
-                maxWidth:
-                  viewportSize.width > 0
-                    ? `${viewportSize.width}px`
-                    : undefined,
+                transformOrigin: "center",
+                ...(getDisplayDimensions(
+                  imageDimensions[currentPage.url],
+                  viewportSize,
+                  zoom,
+                  true,
+                ) ?? { maxWidth: "100%", maxHeight: "100%" }),
               }}
             />
           )}
@@ -494,7 +577,11 @@ export function ComicReader({
           onClick={() => changePage(1)}
           disabled={pageIndex === pages.length - 1}
           aria-label="Próxima página"
-          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+          className={`absolute right-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:right-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
+            theme === "night"
+              ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
+              : "border-stone-300 bg-white/90 text-stone-700 hover:border-violet-300 hover:bg-violet-100"
+          }`}
         >
           <ArrowRight aria-hidden="true" size={18} />
         </button>
@@ -502,7 +589,7 @@ export function ComicReader({
       </figure>
 
       <footer
-        className={`flex min-h-9 items-center justify-end border-t px-4 text-xs ${
+        className={`flex min-h-9 shrink-0 items-center justify-end border-t px-4 text-xs ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/70 text-slate-400"
             : "border-stone-300 bg-[#f2eadc] text-stone-600"
@@ -511,7 +598,11 @@ export function ComicReader({
         {saveStatus === "saving" && <span role="status">Sincronizando progresso…</span>}
         {saveStatus === "saved" && <span role="status">Progresso sincronizado</span>}
         {saveStatus === "error" && (
-          <span className="flex min-w-0 items-center gap-2 text-rose-200">
+          <span
+            className={`flex min-w-0 items-center gap-2 ${
+              theme === "night" ? "text-rose-200" : "text-rose-800"
+            }`}
+          >
             <span className="truncate" title={saveError ?? undefined}>
               {saveError ?? "Não foi possível sincronizar o progresso."}
             </span>

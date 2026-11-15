@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 
+import type { ReaderTheme } from "../../hooks/useReaderTheme";
+
 interface PdfContinuousPageProps {
   document: PDFDocumentProxy;
   pageNumber: number;
   zoom: number;
   width: number;
+  theme: ReaderTheme;
   onVisible: (pageNumber: number) => void;
 }
 
@@ -17,6 +20,7 @@ export function PdfContinuousPage({
   pageNumber,
   zoom,
   width,
+  theme,
   onVisible,
 }: PdfContinuousPageProps) {
   const pageRef = useRef<HTMLElement>(null);
@@ -24,6 +28,7 @@ export function PdfContinuousPage({
   const [isNearViewport, setIsNearViewport] = useState(false);
   const [aspectRatio, setAspectRatio] = useState("0.7");
   const [renderError, setRenderError] = useState<string | null>(null);
+  const displayWidth = Math.max(160, width - 16) * zoom;
 
   useEffect(() => {
     const element = pageRef.current;
@@ -72,7 +77,7 @@ export function PdfContinuousPage({
         const baseViewport = page.getViewport({ scale: 1 });
         setAspectRatio(`${baseViewport.width} / ${baseViewport.height}`);
         const viewport = page.getViewport({
-          scale: (Math.max(240, width - 32) / baseViewport.width) * zoom,
+          scale: displayWidth / baseViewport.width,
         });
         const pixelRatio = Math.min(
           window.devicePixelRatio || 1,
@@ -128,29 +133,34 @@ export function PdfContinuousPage({
       activeCanvas.width = 0;
       activeCanvas.height = 0;
     };
-  }, [document, isNearViewport, pageNumber, width, zoom]);
+  }, [displayWidth, document, isNearViewport, pageNumber, width, zoom]);
 
   return (
     <article
       ref={pageRef}
       data-pdf-page={pageNumber}
       aria-label={`Página ${pageNumber}`}
-      className="flex w-full justify-center"
-      style={{ minHeight: 0 }}
+      className="flex min-w-full justify-center"
+      style={{ width: Math.max(width, displayWidth), minHeight: 0 }}
     >
       {renderError ? (
-        <p role="alert" className="m-4 text-center text-sm text-rose-200">
+        <p
+          role="alert"
+          className={`m-4 text-center text-sm ${
+            theme === "night" ? "text-rose-200" : "text-rose-800"
+          }`}
+        >
           {renderError}
         </p>
       ) : (
         <div
-          className="flex w-full items-center justify-center"
-          style={{ aspectRatio, maxWidth: Math.max(240, width - 32) * zoom }}
+          className="flex shrink-0 items-center justify-center"
+          style={{ width: displayWidth, aspectRatio }}
         >
           <canvas
             ref={canvasRef}
             aria-label={`Página ${pageNumber}`}
-            className="block max-w-full object-contain"
+            className="block max-w-none object-contain"
           />
         </div>
       )}

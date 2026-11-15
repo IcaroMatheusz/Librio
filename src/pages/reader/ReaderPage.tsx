@@ -120,12 +120,12 @@ export default function ReaderPage() {
   }, [bookId]);
 
   return (
-    <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#111421] text-white">
+    <main className="relative flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#111421] text-white">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -right-52 top-24 size-[34rem] rounded-full bg-violet-600/[0.08] blur-3xl"
       />
-      <header className="relative z-10 border-b border-white/[0.07] bg-[#171A27]/80 backdrop-blur">
+      <header className="relative z-10 shrink-0 border-b border-white/[0.07] bg-[#171A27]/80 backdrop-blur">
         <nav className="mx-auto flex w-full max-w-7xl items-center gap-4 px-4 py-3 sm:px-8 lg:px-12">
           <Link
             to={returnTo}
@@ -161,7 +161,7 @@ export default function ReaderPage() {
 
       <section
         aria-label="Conteúdo da obra"
-        className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-2 py-3 sm:px-6 sm:py-5 lg:px-8"
+        className="relative z-10 mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-2 py-1 sm:px-6 sm:py-5 lg:px-8"
       >
         {cacheWarning && !loading && (
           <p

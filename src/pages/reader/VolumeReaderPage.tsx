@@ -165,8 +165,8 @@ export default function VolumeReaderPage() {
   const loading = loadingVolume || loadingChapter;
 
   return (
-    <main className="relative flex min-h-screen flex-col overflow-hidden bg-[#111421] text-white">
-      <header className="relative z-10 border-b border-white/[0.07] bg-[#171A27]/80 backdrop-blur">
+    <main className="relative flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#111421] text-white">
+      <header className="relative z-10 shrink-0 border-b border-white/[0.07] bg-[#171A27]/80 backdrop-blur">
         <nav className="mx-auto flex w-full max-w-7xl items-center gap-3 px-3 py-3 sm:gap-4 sm:px-8 lg:px-12">
           <Link
             to={returnTo}
@@ -200,6 +200,7 @@ export default function VolumeReaderPage() {
                 id="volume-chapter"
                 label="Escolher capítulo"
                 value={String(chapterIndex)}
+                theme="night"
                 disabled={loading}
                 options={volume.chapters.map((chapter, index) => ({
                   value: String(index),
@@ -223,7 +224,7 @@ export default function VolumeReaderPage() {
 
       <section
         aria-label="Conteúdo do volume"
-        className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 flex-col px-2 py-3 sm:px-6 sm:py-5 lg:px-8"
+        className="relative z-10 mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-2 py-1 sm:px-6 sm:py-5 lg:px-8"
       >
         {cacheWarning && !loading && (
           <p

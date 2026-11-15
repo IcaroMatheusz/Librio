@@ -13,8 +13,6 @@ import {
   CircleCheck,
   LoaderCircle,
   Maximize,
-  Minus,
-  Plus,
 } from "lucide-react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -26,6 +24,8 @@ import {
   type ReadingMode,
 } from "./ReaderModeToggle";
 import { PdfContinuousPage } from "./PdfContinuousPage";
+import { ReaderZoomControls } from "./ReaderZoomControls";
+import { getReaderScrollBehavior } from "./readerAccessibility";
 import { ReaderThemeToggle } from "./ReaderThemeToggle";
 import { ReaderLoading } from "./ReaderLoading";
 
@@ -156,10 +156,10 @@ export function PdfReader({
         if (cancelled) return;
 
         const baseViewport = page.getViewport({ scale: 1 });
-        const availableWidth = Math.max(160, (containerWidth || window.innerWidth) - 32);
+        const availableWidth = Math.max(160, containerWidth || window.innerWidth);
         const availableHeight = Math.max(
           160,
-          (containerHeight || window.innerHeight) - (isFullscreen ? 16 : 32),
+          containerHeight || window.innerHeight,
         );
         const fitScale = Math.min(
           availableWidth / baseViewport.width,
@@ -200,6 +200,16 @@ export function PdfReader({
           throw new Error("Não foi possível exibir a página renderizada.");
         }
         displayContext.drawImage(renderCanvas, 0, 0);
+        window.requestAnimationFrame(() => {
+          if (cancelled || readingMode !== "page") return;
+          const viewportElement = pageViewportRef.current;
+          if (!viewportElement) return;
+          viewportElement.scrollLeft = Math.max(
+            0,
+            (viewportElement.scrollWidth - viewportElement.clientWidth) / 2,
+          );
+          viewportElement.scrollTop = 0;
+        });
       } catch (caughtError) {
         if (!cancelled) {
           setRenderError(
@@ -282,7 +292,10 @@ export function PdfReader({
             ?.querySelector<HTMLElement>(
               `[data-pdf-page="${boundedPage}"]`,
             )
-            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            ?.scrollIntoView({
+              behavior: getReaderScrollBehavior(),
+              block: "start",
+            });
         });
       }
     },
@@ -324,22 +337,56 @@ export function PdfReader({
     window.requestAnimationFrame(() => {
       continuousViewportRef.current
         ?.querySelector<HTMLElement>(`[data-pdf-page="${pageNumber}"]`)
-        ?.scrollIntoView({ block: "start" });
+        ?.scrollIntoView({
+          behavior: getReaderScrollBehavior(),
+          block: "start",
+        });
     });
   }, [pageNumber, readingMode]);
 
   useEffect(() => {
+    if (readingMode !== "vertical" || zoom <= 1) return;
+    const frame = window.requestAnimationFrame(() => {
+      const viewport = continuousViewportRef.current;
+      if (!viewport) return;
+      viewport.scrollLeft = Math.max(
+        0,
+        (viewport.scrollWidth - viewport.clientWidth) / 2,
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [containerWidth, readingMode, zoom]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target;
-      if (target instanceof HTMLInputElement) return;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, select, textarea, a, [contenteditable='true']")
+      ) {
+        return;
+      }
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
       if (event.key === "ArrowLeft") {
         changePage(-1);
       } else if (event.key === "ArrowRight") {
         changePage(1);
       } else if (event.key === "+" || event.key === "=") {
-        setZoom((current) => Math.min(3, current + 0.1));
+        setZoom((current) =>
+          Math.min(3, Math.round((current + 0.1) * 10) / 10),
+        );
       } else if (event.key === "-") {
-        setZoom((current) => Math.max(0.5, current - 0.1));
+        setZoom((current) =>
+          Math.max(0.5, Math.round((current - 0.1) * 10) / 10),
+        );
+      } else if (event.key === "0") {
+        setZoom(1);
       }
     }
 
@@ -352,7 +399,7 @@ export function PdfReader({
       readingMode === "page"
         ? pageViewportRef.current
         : continuousViewportRef.current;
-    if (!reader) return;
+    if (!reader || loading) return;
 
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
@@ -361,7 +408,7 @@ export function PdfReader({
     });
     observer.observe(reader);
     return () => observer.disconnect();
-  }, [readingMode]);
+  }, [loading, readingMode]);
 
   function navigateToPage(value: string) {
     const page = Number.parseInt(value, 10);
@@ -390,6 +437,7 @@ export function PdfReader({
         title="Preparando seu PDF"
         detail="Interpretando a estrutura do arquivo e preparando a primeira página…"
         percent={null}
+        theme={theme}
         progressText="Download concluído · construindo o leitor"
       />
     );
@@ -397,7 +445,12 @@ export function PdfReader({
 
   if (error || !pdfDocument) {
     return (
-      <p role="alert" className="m-auto max-w-lg p-8 text-center text-rose-200">
+      <p
+        role="alert"
+        className={`m-auto max-w-lg p-8 text-center ${
+          theme === "night" ? "text-rose-200" : "text-rose-800"
+        }`}
+      >
         {error ?? "Não foi possível abrir este PDF."}
       </p>
     );
@@ -411,7 +464,7 @@ export function PdfReader({
     <section
       ref={readerRef}
       aria-label="Leitor de PDF"
-      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl shadow-black/25 ${
+      className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-2xl shadow-black/25 sm:rounded-2xl ${
         theme === "night"
           ? "border-white/10 bg-[#151827]"
           : "border-stone-300 bg-[#fffaf0]"
@@ -422,14 +475,18 @@ export function PdfReader({
       }`}
     >
       <div
-        className={`flex flex-wrap items-center justify-between gap-2 border-b px-2 py-2 backdrop-blur sm:px-4 ${
+        className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-2 py-2 backdrop-blur sm:px-4 ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/90"
             : "border-stone-300 bg-[#f2eadc]/95"
         }`}
       >
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <ReaderModeToggle mode={readingMode} onChange={setReadingMode} />
+          <ReaderModeToggle
+            mode={readingMode}
+            onChange={setReadingMode}
+            theme={theme}
+          />
           <ReaderThemeToggle theme={theme} onChange={setTheme} />
           <div className="flex items-center gap-1">
           <button
@@ -437,11 +494,19 @@ export function PdfReader({
             onClick={() => changePage(-1)}
             disabled={pageNumber <= 1}
             aria-label="Página anterior"
-            className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
+            className={`inline-flex size-10 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
+              theme === "night"
+                ? "text-slate-200 hover:bg-white/10"
+                : "text-stone-700 hover:bg-stone-200"
+            }`}
           >
             <ArrowLeft aria-hidden="true" size={18} />
           </button>
-          <label className="flex items-center gap-2 text-sm text-slate-300">
+          <label
+            className={`flex items-center gap-2 text-sm ${
+              theme === "night" ? "text-slate-300" : "text-stone-700"
+            }`}
+          >
             <span className="sr-only">Ir para a página</span>
             <input
               type="number"
@@ -453,9 +518,16 @@ export function PdfReader({
               onKeyDown={(event) => {
                 if (event.key === "Enter") navigateToPage(pageInput);
               }}
-              className="h-9 w-14 rounded-lg border border-white/10 bg-[#171A27] text-center text-sm text-white focus-visible:outline-2 focus-visible:outline-violet-200"
+              className={`h-9 w-14 rounded-lg border text-center text-sm focus-visible:outline-2 focus-visible:outline-violet-500 ${
+                theme === "night"
+                  ? "border-white/10 bg-[#171A27] text-white"
+                  : "border-stone-300 bg-white text-stone-900"
+              }`}
             />
-            <span aria-live="polite" className="text-slate-500">
+            <span
+              aria-live="polite"
+              className={theme === "night" ? "text-slate-500" : "text-stone-500"}
+            >
               / {pdfDocument.numPages}
             </span>
           </label>
@@ -464,34 +536,18 @@ export function PdfReader({
             onClick={() => changePage(1)}
             disabled={pageNumber >= pdfDocument.numPages}
             aria-label="Próxima página"
-            className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
+            className={`inline-flex size-10 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
+              theme === "night"
+                ? "text-slate-200 hover:bg-white/10"
+                : "text-stone-700 hover:bg-stone-200"
+            }`}
           >
             <ArrowRight aria-hidden="true" size={18} />
           </button>
         </div>
 
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setZoom((current) => Math.max(0.5, current - 0.1))}
-            disabled={zoom <= 0.5}
-            aria-label="Diminuir zoom"
-            className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
-          >
-            <Minus aria-hidden="true" size={18} />
-          </button>
-          <span className="w-12 text-center text-xs text-slate-300">
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => setZoom((current) => Math.min(3, current + 0.1))}
-            disabled={zoom >= 3}
-            aria-label="Aumentar zoom"
-            className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-40"
-          >
-            <Plus aria-hidden="true" size={18} />
-          </button>
+          <ReaderZoomControls zoom={zoom} theme={theme} onChange={setZoom} />
           <button
             type="button"
             onClick={() => {
@@ -511,7 +567,11 @@ export function PdfReader({
               }
             }}
             aria-label={isFullscreen ? "Sair da tela cheia" : "Alternar tela cheia"}
-            className="inline-flex size-10 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200"
+            className={`inline-flex size-10 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 ${
+              theme === "night"
+                ? "text-slate-200 hover:bg-white/10"
+                : "text-stone-700 hover:bg-stone-200"
+            }`}
           >
             <Maximize aria-hidden="true" size={17} />
           </button>
@@ -520,14 +580,14 @@ export function PdfReader({
       </div>
 
       <div
-        className={`grid min-h-0 flex-1 overflow-auto p-2 sm:gap-3 sm:p-4 ${
+        className={`relative grid min-h-0 flex-1 p-2 sm:gap-3 sm:p-4 ${
           theme === "night"
             ? "bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)]"
             : "bg-stone-200"
         } ${
           readingMode === "page"
-            ? "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1"
-            : "grid-cols-1"
+            ? "grid-cols-1 grid-rows-[minmax(0,1fr)] items-stretch gap-1 overflow-hidden sm:grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
+            : "grid-cols-1 grid-rows-[minmax(0,1fr)] overflow-hidden"
         }`}
       >
         {readingMode === "page" && (
@@ -536,7 +596,11 @@ export function PdfReader({
           onClick={() => changePage(-1)}
           disabled={pageNumber <= 1}
           aria-label="Página anterior"
-          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+          className={`absolute left-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:left-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
+            theme === "night"
+              ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
+              : "border-stone-300 bg-white/90 text-stone-700 hover:border-violet-300 hover:bg-violet-100"
+          }`}
         >
           <ArrowLeft aria-hidden="true" size={18} />
         </button>
@@ -548,14 +612,14 @@ export function PdfReader({
             onPointerMove={pinchZoom.handlePointerMove}
             onPointerUp={pinchZoom.handlePointerUp}
             onPointerCancel={pinchZoom.handlePointerCancel}
-            className={`h-full min-h-0 overflow-y-auto ${
+            className={`h-full min-h-0 overflow-auto ${
               isFullscreen ? "overscroll-contain" : ""
             }`}
             data-pdf-scroll-viewport
-            style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+            style={{ touchAction: "pan-x pan-y" }}
           >
             <div
-              className={`mx-auto flex w-full flex-col items-center gap-0 ${
+              className={`flex w-max min-w-full flex-col items-center gap-0 ${
                 isFullscreen ? "max-w-none" : "max-w-4xl"
               }`}
             >
@@ -565,14 +629,24 @@ export function PdfReader({
                   document={pdfDocument}
                   pageNumber={index + 1}
                   zoom={zoom}
-                  width={containerWidth || window.innerWidth}
+                  width={
+                    isFullscreen
+                      ? containerWidth || window.innerWidth
+                      : Math.min(containerWidth || window.innerWidth, 896)
+                  }
+                  theme={theme}
                   onVisible={handleContinuousPageVisible}
                 />
               ))}
             </div>
           </div>
         ) : renderError ? (
-          <p role="alert" className="text-center text-sm text-rose-200">
+          <p
+            role="alert"
+            className={`text-center text-sm ${
+              theme === "night" ? "text-rose-200" : "text-rose-800"
+            }`}
+          >
             {renderError}
           </p>
         ) : (
@@ -583,17 +657,13 @@ export function PdfReader({
             onPointerMove={pinchZoom.handlePointerMove}
             onPointerUp={pinchZoom.handlePointerUp}
             onPointerCancel={pinchZoom.handlePointerCancel}
-            className={`flex min-h-0 min-w-0 overflow-auto ${
-              zoom > 1
-                ? "items-start justify-start"
-                : "items-center justify-center"
-            }`}
-            style={{ touchAction: "pan-x pan-y pinch-zoom" }}
+            className="flex h-full min-h-0 min-w-0 items-stretch overflow-auto"
+            style={{ touchAction: "pan-x pan-y" }}
           >
             <canvas
               ref={canvasRef}
               aria-label={`Página ${pageNumber} de ${pdfDocument.numPages}`}
-              className="cursor-pointer object-contain shadow-2xl shadow-black/30"
+              className="mx-auto my-0 block max-h-none max-w-none cursor-pointer object-contain shadow-2xl shadow-black/30"
               style={{
                 transform: `scale(${pinchZoom.previewScale})`,
               }}
@@ -606,7 +676,11 @@ export function PdfReader({
           onClick={() => changePage(1)}
           disabled={pageNumber >= pdfDocument.numPages}
           aria-label="Próxima página"
-          className="z-10 inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+          className={`absolute right-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:right-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
+            theme === "night"
+              ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
+              : "border-stone-300 bg-white/90 text-stone-700 hover:border-violet-300 hover:bg-violet-100"
+          }`}
         >
           <ArrowRight aria-hidden="true" size={18} />
         </button>
@@ -614,17 +688,23 @@ export function PdfReader({
       </div>
 
       <footer
-        className={`flex min-h-11 items-center justify-between gap-3 border-t px-3 text-xs sm:px-4 ${
+        className={`flex min-h-11 shrink-0 items-center justify-between gap-3 border-t px-3 text-xs sm:px-4 ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/70 text-slate-400"
             : "border-stone-300 bg-[#f2eadc] text-stone-600"
         }`}
       >
         <span
-          className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-violet-100"
+          className={`inline-flex shrink-0 items-center gap-1.5 font-semibold ${
+            theme === "night" ? "text-violet-100" : "text-violet-800"
+          }`}
           aria-label={`${readingProgress}% do PDF lido`}
         >
-          <BookOpen aria-hidden="true" size={15} className="text-violet-200" />
+          <BookOpen
+            aria-hidden="true"
+            size={15}
+            className={theme === "night" ? "text-violet-200" : "text-violet-700"}
+          />
           {readingProgress}% <span className="hidden sm:inline">lido</span>
         </span>
         {saveStatus === "saving" && (
@@ -632,7 +712,9 @@ export function PdfReader({
             <LoaderCircle
               aria-hidden="true"
               size={14}
-              className="shrink-0 animate-spin text-violet-200"
+              className={`shrink-0 animate-spin ${
+                theme === "night" ? "text-violet-200" : "text-violet-700"
+              }`}
             />
             <span className="truncate">Salvando progresso…</span>
           </span>
@@ -642,13 +724,17 @@ export function PdfReader({
             <CircleCheck
               aria-hidden="true"
               size={14}
-              className="text-emerald-300"
+              className={theme === "night" ? "text-emerald-300" : "text-emerald-700"}
             />
             Progresso salvo
           </span>
         )}
         {saveStatus === "error" && (
-          <span className="flex min-w-0 items-center gap-1.5 text-rose-200">
+          <span
+            className={`flex min-w-0 items-center gap-1.5 ${
+              theme === "night" ? "text-rose-200" : "text-rose-800"
+            }`}
+          >
             <CircleAlert aria-hidden="true" size={14} className="shrink-0" />
             <span className="truncate" title={saveError ?? undefined}>
               {saveError ?? "Não foi possível salvar o progresso."}

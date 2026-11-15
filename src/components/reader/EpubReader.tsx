@@ -24,6 +24,8 @@ import {
   ReaderModeToggle,
   type ReadingMode,
 } from "./ReaderModeToggle";
+import { ReaderTextSizeControls } from "./ReaderTextSizeControls";
+import { getReaderScrollBehavior } from "./readerAccessibility";
 import {
   extractEpub,
   type EpubContentNode,
@@ -39,6 +41,18 @@ interface EpubReaderProps {
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
+const FONT_SIZE_STORAGE_KEY = "librio-reader-font-size";
+
+function getStoredFontSize() {
+  try {
+    const storedSize = Number(
+      window.localStorage.getItem(FONT_SIZE_STORAGE_KEY),
+    );
+    return storedSize >= 14 && storedSize <= 28 ? storedSize : 17;
+  } catch {
+    return 17;
+  }
+}
 
 const CONTENT_CLASSES: Partial<Record<EpubContentNode["type"], string>> = {
   blockquote:
@@ -49,24 +63,24 @@ const CONTENT_CLASSES: Partial<Record<EpubContentNode["type"], string>> = {
   dt: "mt-3 font-semibold",
   em: "italic",
   a: "underline underline-offset-2",
-  figcaption: "mt-2 text-center text-sm",
+  figcaption: "mt-2 text-center text-[0.875em]",
   figure: "my-6 flex flex-col items-center",
-  h1: "mb-6 mt-10 text-3xl font-bold tracking-tight",
-  h2: "mb-5 mt-9 text-2xl font-bold tracking-tight",
-  h3: "mb-4 mt-7 text-xl font-bold",
-  h4: "mb-3 mt-6 text-lg font-bold",
+  h1: "mb-6 mt-10 text-[1.8em] font-bold tracking-tight",
+  h2: "mb-5 mt-9 text-[1.5em] font-bold tracking-tight",
+  h3: "mb-4 mt-7 text-[1.25em] font-bold",
+  h4: "mb-3 mt-6 text-[1.125em] font-bold",
   h5: "mb-3 mt-5 font-bold",
   h6: "mb-2 mt-4 font-bold",
   i: "italic",
-  img: "mx-auto block h-auto max-h-[calc(100dvh-240px)] max-w-full break-inside-avoid-column rounded-lg object-contain",
+  img: "mx-auto block h-auto max-h-full max-w-full break-inside-avoid-column rounded-lg object-contain",
   li: "my-1 pl-1",
   ol: "my-5 list-decimal space-y-1 pl-7",
-  p: "my-5 break-inside-avoid-column whitespace-pre-wrap leading-[1.9]",
-  pre: "my-5 overflow-x-auto rounded-xl p-4 font-mono text-sm",
+  p: "my-5 whitespace-pre-wrap leading-[1.9]",
+  pre: "my-5 overflow-x-auto rounded-xl p-4 font-mono text-[0.875em]",
   section: "my-4",
-  small: "text-sm",
+  small: "text-[0.875em]",
   strong: "font-bold",
-  table: "my-6 w-full border-collapse text-left text-sm",
+  table: "my-6 w-full border-collapse text-left text-[0.875em]",
   td: "border px-3 py-2",
   th: "border px-3 py-2 font-semibold",
   tr: "border-b",
@@ -192,13 +206,41 @@ export function EpubReader({
   const [chapterProgress, setChapterProgress] = useState(0);
   const [readingMode, setReadingMode] = useState<ReadingMode>("page");
   const [pageWidth, setPageWidth] = useState(0);
+  const [fontSize, setFontSize] = useState(getStoredFontSize);
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveAttempt, setSaveAttempt] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const { theme, setTheme } = useReaderTheme();
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSize));
+    } catch (error) {
+      console.warn("Não foi possível salvar o tamanho do texto.", error);
+    }
+  }, [fontSize]);
+
+  useEffect(() => {
+    function syncFullscreen() {
+      setIsFullscreen(document.fullscreenElement === readerRef.current);
+    }
+
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen || document.fullscreenElement) return;
+    function exitImmersiveMode(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsFullscreen(false);
+    }
+    window.addEventListener("keydown", exitImmersiveMode);
+    return () => window.removeEventListener("keydown", exitImmersiveMode);
+  }, [isFullscreen]);
 
   useEffect(() => {
     let active = true;
@@ -415,7 +457,7 @@ export function EpubReader({
       }
       content.scrollTo({
         left: Math.max(0, Math.min(maxScrollLeft, nextScrollLeft)),
-        behavior: "smooth",
+        behavior: getReaderScrollBehavior(),
       });
     },
     [book, changeChapter, pageWidth],
@@ -425,6 +467,24 @@ export function EpubReader({
     if (mode === readingMode) return;
     restoreContentRef.current = true;
     setReadingMode(mode);
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      return;
+    }
+
+    const reader = readerRef.current;
+    if (!reader?.requestFullscreen) {
+      setIsFullscreen(true);
+      return;
+    }
+    void reader.requestFullscreen().catch(() => setIsFullscreen(true));
   }
 
   function handlePageClick(event: MouseEvent<HTMLDivElement>) {
@@ -444,7 +504,9 @@ export function EpubReader({
       if (
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLSelectElement ||
-        event.target instanceof HTMLTextAreaElement
+        event.target instanceof HTMLTextAreaElement ||
+        (event.target instanceof HTMLElement &&
+          event.target.closest("button, a, [contenteditable='true']"))
       ) {
         return;
       }
@@ -468,13 +530,19 @@ export function EpubReader({
         title="Preparando seu EPUB"
         detail={`Organizando capítulos e ilustrações… ${loadProgress}%`}
         percent={loadProgress}
+        theme={theme}
       />
     );
   }
 
   if (error || !book || book.chapters.length === 0) {
     return (
-      <p role="alert" className="m-auto max-w-lg p-8 text-center text-rose-200">
+      <p
+        role="alert"
+        className={`m-auto max-w-lg p-8 text-center ${
+          theme === "night" ? "text-rose-200" : "text-rose-800"
+        }`}
+      >
         {error ?? "Este EPUB não possui capítulos compatíveis para leitura."}
       </p>
     );
@@ -486,14 +554,18 @@ export function EpubReader({
     <section
       ref={readerRef}
       aria-label="Leitor de EPUB"
-      className={`flex min-h-[72dvh] flex-1 flex-col overflow-hidden rounded-2xl border shadow-2xl shadow-black/25 ${
+      className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border shadow-2xl shadow-black/25 sm:rounded-2xl ${
         theme === "night"
           ? "border-white/10 bg-[#151827]"
           : "border-stone-300 bg-[#fffaf0]"
+      } ${
+        isFullscreen
+          ? "fixed inset-0 z-50 h-[100dvh] min-h-0 w-screen rounded-none border-0"
+          : ""
       }`}
     >
       <header
-        className={`flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2.5 backdrop-blur sm:px-5 ${
+        className={`flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-2 py-2.5 backdrop-blur sm:px-5 ${
           theme === "night"
             ? "border-white/[0.08] bg-[#202435]/95"
             : "border-stone-300 bg-[#f2eadc]/95"
@@ -525,15 +597,65 @@ export function EpubReader({
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <div
+            role="group"
+            aria-label="Navegação da leitura"
+            className="flex items-center gap-1 sm:hidden"
+          >
+            <button
+              type="button"
+              onClick={() =>
+                readingMode === "page" ? turnPage(-1) : changeChapter(-1)
+              }
+              disabled={chapterIndex === 0 && chapterProgress === 0}
+              aria-label={
+                readingMode === "page" ? "Página anterior" : "Capítulo anterior"
+              }
+              className={`inline-flex size-10 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
+                theme === "night"
+                  ? "text-slate-200 hover:bg-white/10"
+                  : "text-stone-700 hover:bg-stone-200"
+              }`}
+            >
+              <ArrowLeft aria-hidden="true" size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                readingMode === "page" ? turnPage(1) : changeChapter(1)
+              }
+              disabled={
+                chapterIndex === book.chapters.length - 1 &&
+                chapterProgress >= 1
+              }
+              aria-label={
+                readingMode === "page" ? "Próxima página" : "Próximo capítulo"
+              }
+              className={`inline-flex size-10 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-40 ${
+                theme === "night"
+                  ? "text-slate-200 hover:bg-white/10"
+                  : "text-stone-700 hover:bg-stone-200"
+              }`}
+            >
+              <ArrowRight aria-hidden="true" size={18} />
+            </button>
+          </div>
           <ReaderModeToggle
             mode={readingMode}
             onChange={changeReadingMode}
+            theme={theme}
           />
           <ReaderThemeToggle theme={theme} onChange={setTheme} />
+          <ReaderTextSizeControls
+            fontSize={fontSize}
+            theme={theme}
+            onChange={setFontSize}
+          />
           <ChapterSelector
             id="epub-chapter"
             label="Ir para capítulo"
             value={String(chapterIndex)}
+            theme={theme}
             options={book.chapters.map((chapter, index) => ({
               value: String(index),
               label: `${index + 1}. ${chapter.title}`,
@@ -550,13 +672,13 @@ export function EpubReader({
       </header>
 
       <div
-        className={`grid flex-1 items-stretch gap-1 overflow-hidden p-2 sm:gap-3 sm:p-4 ${
+        className={`grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] items-stretch gap-1 overflow-hidden p-2 sm:gap-3 sm:p-4 ${
           theme === "night"
             ? "bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.07),transparent_65%)]"
             : "bg-stone-200"
         } ${
           readingMode === "page"
-            ? "grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
+            ? "grid-cols-1 sm:grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
             : "grid-cols-1"
         }`}
       >
@@ -570,7 +692,11 @@ export function EpubReader({
           aria-label={
             readingMode === "page" ? "Página anterior" : "Capítulo anterior"
           }
-          className="z-10 my-auto inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+          className={`z-10 my-auto hidden size-10 items-center justify-center justify-self-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:inline-flex ${
+            theme === "night"
+              ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
+              : "border-stone-300 bg-white/90 text-stone-700 hover:border-violet-300 hover:bg-violet-100"
+          }`}
         >
           <ArrowLeft aria-hidden="true" size={18} />
         </button>
@@ -579,7 +705,7 @@ export function EpubReader({
           ref={contentRef}
           onScroll={handleScroll}
           onClick={handlePageClick}
-          className={`min-h-0 min-w-0 rounded-xl px-4 py-6 sm:px-8 sm:py-10 lg:px-14 ${
+          className={`min-h-0 min-w-0 rounded-xl px-4 py-4 sm:px-8 sm:py-8 lg:px-14 ${
             readingMode === "page"
               ? "overflow-x-auto overflow-y-hidden"
               : "overflow-y-auto"
@@ -588,12 +714,14 @@ export function EpubReader({
               ? "bg-[#151827] text-slate-200"
               : "bg-[#fffaf0] text-stone-800 shadow-inner shadow-stone-900/5"
           }`}
+          style={{ fontSize: `${fontSize}px` }}
         >
           {readingMode === "page" ? (
             <article
-              className="h-full max-w-none font-serif text-[1.05rem] leading-[1.85] sm:text-lg"
+              className="h-full max-w-none font-serif leading-[1.85]"
               style={{
                 height: "100%",
+                fontSize: `${fontSize}px`,
                 columnWidth: pageWidth ? `${pageWidth}px` : "auto",
                 columnGap: "2rem",
                 columnFill: "auto",
@@ -602,7 +730,7 @@ export function EpubReader({
               {renderContent(currentChapter.content, theme, currentChapter.id)}
             </article>
           ) : (
-            <div className="mx-auto max-w-3xl space-y-12 font-serif text-[1.05rem] leading-[1.85] sm:text-lg">
+            <div className="mx-auto max-w-3xl space-y-12 font-serif leading-[1.85]">
               {book.chapters.map((chapter, index) => (
                 <article
                   key={chapter.id}
@@ -614,7 +742,7 @@ export function EpubReader({
                 >
                   {index > 0 && (
                     <h2
-                      className={`mb-8 mt-4 text-center font-sans text-lg font-bold ${
+                      className={`mb-8 mt-4 text-center font-sans text-[1.125em] font-bold ${
                         theme === "night" ? "text-violet-200" : "text-violet-800"
                       }`}
                     >
@@ -640,7 +768,11 @@ export function EpubReader({
           aria-label={
             readingMode === "page" ? "Próxima página" : "Próximo capítulo"
           }
-          className="z-10 my-auto inline-flex size-10 items-center justify-center justify-self-center rounded-full border border-white/10 bg-[#202435]/90 text-slate-200 shadow-lg transition hover:border-violet-200/30 hover:bg-violet-300/15 focus-visible:outline-2 focus-visible:outline-violet-200 disabled:opacity-30"
+          className={`z-10 my-auto hidden size-10 items-center justify-center justify-self-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:inline-flex ${
+            theme === "night"
+              ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
+              : "border-stone-300 bg-white/90 text-stone-700 hover:border-violet-300 hover:bg-violet-100"
+          }`}
         >
           <ArrowRight aria-hidden="true" size={18} />
         </button>
@@ -655,23 +787,27 @@ export function EpubReader({
         }`}
       >
         <span
-          className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-violet-100"
+          className={`inline-flex shrink-0 items-center gap-1.5 font-semibold ${
+            theme === "night" ? "text-violet-100" : "text-violet-800"
+          }`}
           aria-label={`${currentProgress}% do EPUB lido`}
         >
-          <BookOpen aria-hidden="true" size={15} className="text-violet-200" />
+          <BookOpen
+            aria-hidden="true"
+            size={15}
+            className={theme === "night" ? "text-violet-200" : "text-violet-700"}
+          />
           {currentProgress}% <span className="hidden sm:inline">lido</span>
         </span>
         <button
           type="button"
-          onClick={() => {
-            if (document.fullscreenElement) {
-              void document.exitFullscreen();
-            } else {
-              void readerRef.current?.requestFullscreen();
-            }
-          }}
-          aria-label="Alternar tela cheia"
-          className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-200 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-violet-200"
+          onClick={toggleFullscreen}
+          aria-label={isFullscreen ? "Sair da tela cheia" : "Alternar tela cheia"}
+          className={`inline-flex size-9 shrink-0 items-center justify-center rounded-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 ${
+            theme === "night"
+              ? "text-slate-200 hover:bg-white/10"
+              : "text-stone-700 hover:bg-stone-200"
+          }`}
         >
           <Maximize aria-hidden="true" size={16} />
         </button>
@@ -680,7 +816,9 @@ export function EpubReader({
             <LoaderCircle
               aria-hidden="true"
               size={14}
-              className="shrink-0 animate-spin text-violet-200"
+              className={`shrink-0 animate-spin ${
+                theme === "night" ? "text-violet-200" : "text-violet-700"
+              }`}
             />
             <span className="truncate">Salvando progresso…</span>
           </span>
@@ -690,13 +828,17 @@ export function EpubReader({
             <CircleCheck
               aria-hidden="true"
               size={14}
-              className="text-emerald-300"
+              className={theme === "night" ? "text-emerald-300" : "text-emerald-700"}
             />
             Progresso salvo
           </span>
         )}
         {saveStatus === "error" && (
-          <span className="flex min-w-0 items-center gap-1.5 text-rose-200">
+          <span
+            className={`flex min-w-0 items-center gap-1.5 ${
+              theme === "night" ? "text-rose-200" : "text-rose-800"
+            }`}
+          >
             <CircleAlert aria-hidden="true" size={14} className="shrink-0" />
             <span className="truncate" title={saveError ?? undefined}>
               {saveError ?? "Não foi possível sincronizar o progresso."}
