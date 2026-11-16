@@ -148,6 +148,19 @@ export async function markBookOpened(bookId: string) {
   if (error) throw error;
 }
 
+export async function saveBookProgress(bookId: string, progress: number) {
+  const client = requireSupabase();
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) throw new Error('Sua sessão expirou. Entre novamente.');
+  const { error } = await client.from('reading_progress').upsert({
+    book_id: bookId,
+    user_id: user.id,
+    progress: Math.max(0, Math.min(100, Math.round(progress))),
+    last_read_at: new Date().toISOString(),
+  }, { onConflict: 'book_id' });
+  if (error) throw error;
+}
+
 export async function getBookUrl(book: Book) {
   const { data, error } = await requireSupabase().storage.from('books').createSignedUrl(book.file_path, 3600);
   if (error) throw error;

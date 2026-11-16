@@ -4,11 +4,14 @@
     "slug": "librio",
     "scheme": "librio",
     "version": "0.1.0",
+    "icon": "./assets/librio-icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "plugins": [
       "expo-router",
       "expo-document-picker",
+      "@config-plugins/react-native-blob-util",
+      "@config-plugins/react-native-pdf",
       "expo-font",
       "expo-status-bar",
       "./plugins/withAndroidReleaseSigning"
@@ -17,7 +20,12 @@
       "typedRoutes": true
     },
     "android": {
-      "package": "com.librio.mobile"
+      "package": "com.librio.mobile",
+      "icon": "./assets/librio-icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/librio-icon.png",
+        "backgroundColor": "#190A05"
+      }
     },
     "ios": {
       "bundleIdentifier": "com.librio.mobile"

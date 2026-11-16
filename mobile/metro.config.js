@@ -2,6 +2,7 @@ const path = require('node:path');
 const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
+config.resolver.assetExts = [...config.resolver.assetExts, 'txt'];
 config.watchFolders = [path.resolve(__dirname, '../src/assets/mobile')];
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, 'node_modules'),
