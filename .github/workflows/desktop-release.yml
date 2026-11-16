@@ -79,6 +79,16 @@ jobs:
           # so the attached APK can be installed without private signing secrets.
           ./gradlew assembleDebug
 
+      - name: Ensure GitHub release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Librio $GITHUB_REF_NAME" \
+              --notes "Instaladores do Librio para esta versão."
+          fi
+
       - name: Attach APK to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
