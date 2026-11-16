@@ -14,6 +14,7 @@ import { Link } from "react-router-dom";
 import harryPotter from "../../assets/harrypotter.png";
 import spawn from "../../assets/spawn.webp";
 import bleach from "../../assets/bleach.png";
+import mobileBannerArt from "../../assets/mobile/naruto.png";
 
 const LATEST_RELEASE_API =
   "https://api.github.com/repos/IcaroMatheusz/Librio/releases/latest";
@@ -287,6 +288,73 @@ export default function DownloadPage() {
                 </div>
               </div>
             </section>
+          </div>
+        </section>
+
+        <section
+          aria-labelledby="mobile-banner-title"
+          className="relative mt-6 overflow-hidden rounded-[1.75rem] border border-orange-200/15 bg-[#30231F] shadow-[0_20px_60px_-36px_rgba(249,115,22,0.65)] sm:mt-8"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundImage:
+                "radial-gradient(ellipse 70% 100% at 16% 50%, rgba(249,115,22,.28), transparent 75%), radial-gradient(ellipse 70% 100% at 95% 0%, rgba(234,88,12,.18), transparent 70%)",
+            }}
+          />
+          <div className="relative grid min-h-[390px] grid-cols-1 items-center md:min-h-[280px] md:grid-cols-[0.85fr_1.15fr] lg:min-h-[310px] lg:grid-cols-2">
+            <div className="pointer-events-none relative order-2 h-52 overflow-hidden md:order-1 md:h-full md:min-h-[280px] lg:min-h-[310px]">
+              <img
+                src={mobileBannerArt}
+                alt="Naruto em pose de ação, ilustração do banner do app móvel Librio"
+                className="absolute inset-x-0 bottom-0 mx-auto h-[115%] max-w-[92%] object-contain object-bottom drop-shadow-[0_16px_28px_rgba(0,0,0,0.42)] transition-transform duration-500 md:h-[112%] md:max-w-full md:hover:scale-[1.03]"
+              />
+              <span className="absolute bottom-4 left-5 rotate-[-4deg] bg-amber-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-[#31200D] sm:left-8">
+                Android
+              </span>
+            </div>
+            <div className="relative order-1 px-5 pb-1 pt-6 sm:px-8 sm:pt-8 md:order-2 md:py-8 lg:px-12">
+              <span className="inline-flex items-center gap-2 rounded-full border border-orange-100/20 bg-black/20 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.17em] text-orange-100 sm:text-[10px]">
+                <Sparkles aria-hidden="true" size={13} />
+                Leve sua biblioteca com você
+              </span>
+              <h2
+                id="mobile-banner-title"
+                className="mt-3 text-2xl font-black leading-tight tracking-[-0.04em] text-white sm:text-3xl lg:text-4xl"
+              >
+                Suas histórias. <span className="text-orange-200">Em qualquer lugar.</span>
+              </h2>
+              <p className="mt-2 max-w-xl text-xs leading-5 text-orange-50/75 sm:text-sm sm:leading-6">
+                Leia livros, quadrinhos e mangás no celular. Continue de onde parou e mantenha sua biblioteca sincronizada.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3 sm:mt-5">
+                {mobileRelease.status === "available" ? (
+                  <a
+                    href={ANDROID_APK_URL}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-amber-200 px-4 py-2 text-xs font-extrabold text-[#30200F] transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:min-h-11 sm:px-5 sm:text-sm"
+                  >
+                    <Download aria-hidden="true" size={16} />
+                    Baixar para Android
+                  </a>
+                ) : (
+                  <a
+                    href={RELEASES_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-amber-200 px-4 py-2 text-xs font-extrabold text-[#30200F] transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:min-h-11 sm:px-5 sm:text-sm"
+                  >
+                    <Download aria-hidden="true" size={16} />
+                    {mobileRelease.status === "loading" ? "Verificando versão…" : "Ver versão para Android"}
+                  </a>
+                )}
+                <span className="text-[10px] font-semibold text-orange-100/65 sm:text-xs">
+                  {mobileRelease.status === "available"
+                    ? `Versão ${mobileRelease.release.version}`
+                    : "APK disponível nas releases do Librio"}
+                </span>
+              </div>
+            </div>
           </div>
         </section>
 
