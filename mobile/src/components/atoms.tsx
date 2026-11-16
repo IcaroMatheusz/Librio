@@ -2,7 +2,7 @@ import type { PropsWithChildren } from 'react';
 import { Pressable, StyleSheet, Text, View, type PressableProps, type TextStyle } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
-export const palette = { background: '#171A27', panel: '#222638', panelLight: '#292E42', border: 'rgba(255,255,255,0.09)', text: '#FFFFFF', muted: '#AEB2C3', violet: '#B8A4F5', violetLight: '#D8CCFF', green: '#9AE6C0', red: '#FFB9B9' };
+export const palette = { background: '#171A27', panel: '#222638', panelLight: '#292E42', border: 'rgba(255,255,255,0.09)', text: '#FFFFFF', muted: '#AEB2C3', violet: '#A78BFA', violetLight: '#C4B5FD', green: '#9AE6C0', red: '#FFB9B9' };
 
 export function Screen({ children }: PropsWithChildren) {
   return <View style={styles.screen}>{children}</View>;
