@@ -10,7 +10,8 @@
       "expo-router",
       "expo-document-picker",
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      "./plugins/withAndroidReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true
