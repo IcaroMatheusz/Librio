@@ -9,9 +9,10 @@ module.exports = function withAndroidReleaseSigning(config) {
         `signingConfigs {
         librioRelease {
             storeFile file(System.getenv("LIBRIO_UPLOAD_STORE_FILE"))
+            storeType "PKCS12"
             storePassword System.getenv("LIBRIO_UPLOAD_STORE_PASSWORD")
-            keyAlias System.getenv("LIBRIO_UPLOAD_KEY_ALIAS")
-            keyPassword System.getenv("LIBRIO_UPLOAD_KEY_PASSWORD")
+            keyAlias "librio-upload"
+            keyPassword System.getenv("LIBRIO_UPLOAD_STORE_PASSWORD")
         }
         debug {`,
       );

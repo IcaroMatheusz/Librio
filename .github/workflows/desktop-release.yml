@@ -75,11 +75,11 @@ jobs:
           LIBRIO_VERSION_CODE: ${{ github.run_number }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           LIBRIO_UPLOAD_STORE_PASSWORD: ${{ secrets.LIBRIO_UPLOAD_STORE_PASSWORD }}
-          LIBRIO_UPLOAD_KEY_ALIAS: ${{ secrets.LIBRIO_UPLOAD_KEY_ALIAS }}
-          LIBRIO_UPLOAD_KEY_PASSWORD: ${{ secrets.LIBRIO_UPLOAD_KEY_PASSWORD }}
+          LIBRIO_UPLOAD_KEY_ALIAS: librio-upload
+          LIBRIO_UPLOAD_KEY_PASSWORD: ${{ secrets.LIBRIO_UPLOAD_STORE_PASSWORD }}
           LIBRIO_UPLOAD_STORE_FILE: ${{ github.workspace }}/mobile/librio-upload.jks
         run: |
-          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$LIBRIO_UPLOAD_STORE_PASSWORD" ] || [ -z "$LIBRIO_UPLOAD_KEY_ALIAS" ] || [ -z "$LIBRIO_UPLOAD_KEY_PASSWORD" ]; then
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$LIBRIO_UPLOAD_STORE_PASSWORD" ]; then
             echo "Configure os secrets Android de assinatura estável antes de gerar releases."
             exit 1
           fi
