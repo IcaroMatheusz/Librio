@@ -8,6 +8,22 @@ export function Screen({ children }: PropsWithChildren) {
   return <View style={styles.screen}>{children}</View>;
 }
 
+export function BookIcon({ size = 21, color = palette.violetLight }: { size?: number; color?: string }) {
+  const page = { flex: 1 as const, height: size, borderWidth: 1.6, borderColor: color, backgroundColor: 'rgba(255,255,255,0.025)' };
+  return <View accessibilityLabel="Librio" style={{ width: size * 1.2, height: size, flexDirection: 'row', alignItems: 'center' }}>
+    <View style={[page,{borderTopLeftRadius:size*.18,borderBottomLeftRadius:size*.18,borderRightWidth:.7,transform:[{skewY:'-4deg'}]}]} />
+    <View style={[page,{borderTopRightRadius:size*.18,borderBottomRightRadius:size*.18,borderLeftWidth:.7,transform:[{skewY:'4deg'}]}]} />
+    <View style={{position:'absolute',left:'50%',top:2,bottom:2,width:1,backgroundColor:color,opacity:.75}} />
+  </View>;
+}
+
+export function Brand({ compact = false }: { compact?: boolean }) {
+  return <View style={{flexDirection:'row',alignItems:'center',gap:9}}>
+    <View style={{width:38,height:38,borderRadius:13,borderWidth:1,borderColor:'rgba(216,204,255,.55)',backgroundColor:'rgba(184,164,245,.12)',alignItems:'center',justifyContent:'center'}}><BookIcon size={19}/></View>
+    {!compact&&<Text style={{color:'#fff',fontSize:19,fontWeight:'900',letterSpacing:-.5}}>Librio<Text style={{color:palette.violet}}>.</Text></Text>}
+  </View>;
+}
+
 export function Surface({ children, style }: PropsWithChildren<{ style?: object }>) {
   return <Animated.View entering={FadeInDown.duration(380)} style={[styles.surface, style]}>{children}</Animated.View>;
 }

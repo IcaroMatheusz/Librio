@@ -5,7 +5,7 @@ import * as Linking from 'expo-linking';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import type { Session } from '@supabase/supabase-js';
 import { requireSupabase } from '../src/lib/supabase';
-import { palette } from '../src/components/atoms';
+import { BookIcon, palette } from '../src/components/atoms';
 
 const wallpaper = require('../../src/assets/mobile/onepiece_wallpaper.jpg');
 
@@ -37,7 +37,7 @@ export default function SignIn() {
     <View style={s.shade} />
     <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Animated.View entering={FadeInUp.duration(750)} style={s.brandBlock}><View style={s.logo}><Text style={s.logoMark}>L</Text></View><Text style={s.brand}>Librio<Text style={s.dot}>.</Text></Text><Text style={s.tagline}>Sua próxima aventura começa aqui.</Text></Animated.View>
+        <Animated.View entering={FadeInUp.duration(750)} style={s.brandBlock}><View style={s.logo}><BookIcon size={25}/></View><Text style={s.brand}>Librio<Text style={s.dot}>.</Text></Text><Text style={s.tagline}>Sua próxima aventura começa aqui.</Text></Animated.View>
         <Animated.View entering={FadeInDown.delay(120).duration(650)} style={s.card}>
           <Text style={s.kicker}>SUA ESTANTE DIGITAL</Text><Text style={s.title}>Bem-vindo de volta</Text><Text style={s.caption}>Entre e continue a leitura de onde parou.</Text>
           <Text style={s.label}>E-mail</Text><TextInput autoCapitalize="none" keyboardType="email-address" autoComplete="email" style={s.input} value={email} onChangeText={setEmail} placeholder="voce@email.com" placeholderTextColor="#777D92" />
