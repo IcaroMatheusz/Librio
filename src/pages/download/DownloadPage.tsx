@@ -18,6 +18,8 @@ import bleach from "../../assets/bleach.png";
 const LATEST_RELEASE_API =
   "https://api.github.com/repos/IcaroMatheusz/Librio/releases/latest";
 const RELEASES_URL = "https://github.com/IcaroMatheusz/Librio/releases/latest";
+const ANDROID_APK_URL =
+  "https://github.com/IcaroMatheusz/Librio/releases/latest/download/Librio-Android.apk";
 
 interface DesktopRelease {
   version: string;
@@ -113,7 +115,7 @@ export default function DownloadPage() {
             asset !== null &&
             "name" in asset &&
             typeof asset.name === "string" &&
-            asset.name.toLowerCase().endsWith(".apk") &&
+            asset.name.toLowerCase() === "librio-android.apk" &&
             "browser_download_url" in asset &&
             typeof asset.browser_download_url === "string",
         );
@@ -333,7 +335,7 @@ export default function DownloadPage() {
               </p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 {mobileRelease.status === "available" ? (
-                  <a href={mobileRelease.release.downloadUrl} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+                  <a href={ANDROID_APK_URL} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
                     <Download aria-hidden="true" size={15} />
                     Baixar APK ({mobileRelease.release.version})
                   </a>

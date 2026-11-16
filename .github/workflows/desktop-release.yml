@@ -75,13 +75,15 @@ jobs:
           npx expo prebuild --platform android --no-install
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          # The debug variant is signed by Android's generated debug keystore,
+          # so the attached APK can be installed without private signing secrets.
+          ./gradlew assembleDebug
 
       - name: Attach APK to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APK_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk
-          APK_NAME: Librio-Android-${{ github.ref_name }}.apk
+          APK_PATH: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          APK_NAME: Librio-Android.apk
         run: |
           test -f "$APK_PATH"
           cp "$APK_PATH" "$APK_NAME"
