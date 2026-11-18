@@ -3,18 +3,27 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  BookOpenCheck,
   Check,
+  Cloud,
   Download,
+  ExternalLink,
+  FolderOpen,
   Monitor,
+  RefreshCw,
   Smartphone,
   Sparkles,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import harryPotter from "../../assets/harrypotter.png";
-import spawn from "../../assets/spawn.webp";
 import bleach from "../../assets/bleach.png";
-import mobileBannerArt from "../../assets/mobile/naruto.png";
+import harryPotter from "../../assets/harrypotter.png";
+import onePieceWallpaper from "../../assets/mobile/onepiece_wallpaper.jpg";
+import spawn from "../../assets/spawn.webp";
+import {
+  MobileDownloadBanner,
+  type AppReleaseState,
+} from "../../components/download/MobileDownloadBanner";
 
 const LATEST_RELEASE_API =
   "https://api.github.com/repos/IcaroMatheusz/Librio/releases/latest";
@@ -22,62 +31,80 @@ const RELEASES_URL = "https://github.com/IcaroMatheusz/Librio/releases/latest";
 const ANDROID_APK_URL =
   "https://github.com/IcaroMatheusz/Librio/releases/latest/download/Librio-Android.apk";
 
-interface DesktopRelease {
-  version: string;
-  downloadUrl: string;
-}
-
-type DesktopReleaseState =
-  | { status: "loading" }
-  | { status: "available"; release: DesktopRelease }
-  | { status: "unavailable" }
-  | { status: "error" };
-
 const CHARACTERS = [
   {
     character: "Spawn",
     category: "HQs",
+    readerMeta: "HQ · Edição #01 · CBR",
+    progress: "72%",
     image: spawn,
-    description: "Suas HQs reunidas em um só lugar.",
+    description: "Suas HQs reunidas em tela cheia, com zoom nítido página a página.",
     imageClass:
-      "w-auto max-w-[96%] object-contain object-bottom brightness-110 contrast-110",
+      "h-[90%] max-w-[92%] object-contain object-bottom brightness-105 contrast-105",
     accentClass: "text-rose-200",
+    glowColor: "rgba(168, 85, 247, 0.34)",
   },
   {
     character: "Ichigo e Rukia",
     category: "Mangás",
+    readerMeta: "Mangá · Vol. 14 · CBZ",
+    progress: "85%",
     image: bleach,
-    description: "Acompanhe suas histórias favoritas, capítulo por capítulo.",
-    imageClass:
-      "w-auto max-w-[90%] object-contain object-bottom",
-    accentClass: "text-orange-200",
+    description: "Acompanhe sagas e volumes locais ou na nuvem, capítulo por capítulo.",
+    imageClass: "h-[90%] max-w-[88%] object-contain object-bottom",
+    accentClass: "text-violet-200",
+    glowColor: "rgba(139, 92, 246, 0.36)",
   },
   {
     character: "Harry Potter",
     category: "Livros",
+    readerMeta: "Livro · Cap. 09 · EPUB",
+    progress: "64%",
     image: harryPotter,
-    description: "Volte aos livros e continue de onde parou.",
-    imageClass:
-      "w-auto max-w-[94%] object-contain object-bottom",
+    description: "Conforto de leitura personalizável para voltar exatamente onde parou.",
+    imageClass: "h-[88%] max-w-[86%] object-contain object-bottom",
     accentClass: "text-amber-200",
+    glowColor: "rgba(124, 58, 237, 0.34)",
   },
-];
+] as const;
+
+const DESKTOP_HIGHLIGHTS = [
+  {
+    icon: FolderOpen,
+    label: "Arquivos e pastas locais",
+  },
+  {
+    icon: RefreshCw,
+    label: "Atualizações automáticas",
+  },
+  {
+    icon: BookOpenCheck,
+    label: "PDF, EPUB, CBR e CBZ",
+  },
+  {
+    icon: Cloud,
+    label: "Nuvem sincronizada",
+  },
+] as const;
 
 export default function DownloadPage() {
   const [activeCharacter, setActiveCharacter] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [desktopRelease, setDesktopRelease] =
-    useState<DesktopReleaseState>({ status: "loading" });
+    useState<AppReleaseState>({ status: "loading" });
   const [mobileRelease, setMobileRelease] =
-    useState<DesktopReleaseState>({ status: "loading" });
+    useState<AppReleaseState>({ status: "loading" });
   const character = CHARACTERS[activeCharacter];
 
   useEffect(() => {
+    if (paused) return;
+
     const intervalId = window.setInterval(() => {
       setActiveCharacter((index) => (index + 1) % CHARACTERS.length);
-    }, 3000);
+    }, 3600);
 
     return () => window.clearInterval(intervalId);
-  }, []);
+  }, [paused]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -122,7 +149,13 @@ export default function DownloadPage() {
         );
         setMobileRelease(
           apk
-            ? { status: "available", release: { version: data.tag_name, downloadUrl: apk.browser_download_url } }
+            ? {
+                status: "available",
+                release: {
+                  version: data.tag_name,
+                  downloadUrl: apk.browser_download_url,
+                },
+              }
             : { status: "unavailable" },
         );
 
@@ -164,9 +197,14 @@ export default function DownloadPage() {
     <main className="relative min-h-screen overflow-hidden bg-[#171A27] text-white">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -left-44 top-52 size-[30rem] rounded-full bg-violet-700/10 blur-3xl"
+        className="pointer-events-none absolute -left-44 top-40 size-[32rem] rounded-full bg-violet-700/12 blur-3xl"
       />
-      <header className="relative border-b border-white/[0.07] bg-[#171A27]/85">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-44 top-[34rem] size-[28rem] rounded-full bg-orange-600/10 blur-3xl"
+      />
+
+      <header className="relative border-b border-white/[0.07] bg-[#171A27]/85 backdrop-blur-md">
         <nav className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-8 lg:px-12">
           <Link
             to="/dashboard"
@@ -177,66 +215,107 @@ export default function DownloadPage() {
           </Link>
           <Link
             to="/dashboard"
-            className="inline-flex items-center gap-2 text-sm font-extrabold tracking-wide text-violet-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
+            className="inline-flex items-center gap-2 text-base font-extrabold tracking-tight text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
           >
             <BookOpen
               aria-hidden="true"
               size={19}
               className="text-violet-300"
             />
-            Librio
+            Librio<span className="text-violet-300">.</span>
           </Link>
         </nav>
       </header>
 
       <div className="relative mx-auto max-w-7xl px-4 pb-14 pt-7 sm:px-8 sm:pb-16 sm:pt-10 lg:px-12">
+        {/* Desktop Download Hero Card */}
         <section
           aria-labelledby="download-title"
-          className="relative isolate overflow-hidden rounded-[2rem] border border-violet-200/20 bg-[#211d36] shadow-[0_24px_70px_-30px_rgba(124,58,237,0.6)]"
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          onFocusCapture={() => setPaused(true)}
+          onBlurCapture={() => setPaused(false)}
+          className="relative isolate overflow-hidden rounded-[2rem] border border-violet-200/20 bg-[#201C35] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_26px_75px_-32px_rgba(124,58,237,0.65)]"
           style={{
-            backgroundImage:
-              "radial-gradient(ellipse 90% 70% at 78% 68%, rgba(91,61,153,.24), transparent 76%), radial-gradient(ellipse 80% 65% at 12% 8%, rgba(124,45,18,.18), transparent 72%)",
+            backgroundImage: `radial-gradient(ellipse 78% 82% at 80% 58%, ${character.glowColor}, transparent 72%), radial-gradient(ellipse 70% 65% at 10% 10%, rgba(109,40,217,0.22), transparent 68%)`,
           }}
         >
+          {/* Halftone comic dot texture */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 z-0 opacity-30"
+            className="pointer-events-none absolute inset-0 z-0 opacity-25"
             style={{
               backgroundImage:
-                "radial-gradient(circle, rgba(221,214,254,.48) 1px, transparent 1.5px)",
+                "radial-gradient(circle, rgba(221,214,254,0.45) 1px, transparent 1.5px)",
               backgroundSize: "18px 18px",
             }}
           />
-          <div className="relative z-10 grid grid-cols-1 lg:min-h-[520px] lg:grid-cols-[1fr_0.9fr]">
-            <div className="relative z-20 row-start-1 flex flex-col items-start px-5 pb-[320px] pt-8 sm:px-10 sm:pt-10 lg:col-start-1 lg:justify-center lg:px-14 lg:py-12">
-              <span className="inline-flex items-center gap-2 rounded-full border border-violet-200/25 bg-[#171426]/65 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-violet-100 sm:text-xs sm:tracking-[0.18em]">
-                <Sparkles aria-hidden="true" size={14} />
-                Aplicativo para desktop
-              </span>
+
+          {/* Decorative corner stamp */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute right-5 top-5 z-30 hidden -rotate-3 rounded-md border border-violet-100/35 bg-violet-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-[#22183A] shadow-md lg:block"
+          >
+            Windows x64
+          </span>
+
+          <div className="relative z-10 grid grid-cols-1 lg:min-h-[480px] lg:grid-cols-[1.06fr_0.94fr]">
+            {/* Left Column: Copy, Feature Chips & Actions */}
+            <div className="relative z-20 flex flex-col items-start justify-center px-5 pb-4 pt-7 sm:px-10 sm:pt-10 lg:py-12 lg:pl-14 lg:pr-8">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full border border-violet-200/25 bg-[#151225]/80 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-violet-100 sm:text-xs sm:tracking-[0.18em]">
+                  <Monitor aria-hidden="true" size={14} className="text-violet-300" />
+                  Aplicativo para Windows
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full border border-violet-200/20 bg-violet-300/10 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-violet-200">
+                  <Sparkles aria-hidden="true" size={11} />
+                  {desktopRelease.status === "available"
+                    ? `Release ${desktopRelease.release.version}`
+                    : "Auto-update integrado"}
+                </span>
+              </div>
+
               <h1
                 id="download-title"
-                className="mt-5 text-4xl font-black leading-[1.05] tracking-[-0.05em] text-white sm:text-5xl lg:text-6xl"
+                className="mt-4 text-3xl font-black leading-[1.05] tracking-[-0.04em] text-white sm:text-5xl lg:text-[3.35rem]"
               >
-                Librio
-                <span className="text-violet-300">.</span>
+                Librio no PC<span className="text-violet-300">.</span>
                 <br />
-                Onde você estiver.
+                <span className="text-violet-200">Sua estante</span> sem limites.
               </h1>
-              <p className="mt-4 max-w-lg text-sm leading-6 text-violet-100/85 sm:text-base sm:leading-7">
-                Baixe o Librio para Windows e leia sua biblioteca local ou na
-                nuvem. O aplicativo verifica e instala atualizações publicadas
-                no GitHub automaticamente.
-              </p>
-              <p className="mt-3 max-w-lg text-xs leading-5 text-slate-400 sm:text-sm">
-                Enquanto isso, continue usando o Librio pela web. A leitura no
-                navegador funciona com as obras da sua biblioteca na nuvem.
+
+              <p className="mt-4 max-w-xl text-sm leading-6 text-violet-100/85 sm:text-base sm:leading-7">
+                Instale o Librio para Windows e leia tanto sua coleção salva no
+                computador quanto sua biblioteca na nuvem, com atualizações
+                baixadas automaticamente a cada nova versão.
               </p>
 
-              <div className="mt-6 flex flex-wrap gap-3">
+              {/* Feature Chips */}
+              <ul
+                aria-label="Recursos da versão desktop"
+                className="mt-5 flex flex-wrap gap-2"
+              >
+                {DESKTOP_HIGHLIGHTS.map(({ icon: Icon, label }) => (
+                  <li
+                    key={label}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/25 px-3 py-1.5 text-xs font-semibold text-violet-50/90"
+                  >
+                    <Icon
+                      aria-hidden="true"
+                      size={14}
+                      className="shrink-0 text-violet-300"
+                    />
+                    {label}
+                  </li>
+                ))}
+              </ul>
+
+              {/* Actions */}
+              <div className="mt-6 flex flex-wrap items-center gap-3">
                 {desktopRelease.status === "available" ? (
                   <a
                     href={desktopRelease.release.downloadUrl}
-                    className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-300 px-4 py-2.5 text-sm font-extrabold text-[#211a34] transition hover:bg-violet-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:px-5"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-300 px-5 py-2.5 text-sm font-extrabold text-[#1E1733] shadow-lg shadow-black/30 transition hover:-translate-y-0.5 hover:bg-violet-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
                   >
                     <Download aria-hidden="true" size={17} />
                     Baixar para Windows ({desktopRelease.release.version})
@@ -246,117 +325,158 @@ export default function DownloadPage() {
                     href={RELEASES_URL}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-violet-300 px-4 py-2.5 text-sm font-extrabold text-[#211a34] transition hover:bg-violet-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:px-5"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-300 px-5 py-2.5 text-sm font-extrabold text-[#1E1733] shadow-lg shadow-black/30 transition hover:-translate-y-0.5 hover:bg-violet-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
                   >
                     <Download aria-hidden="true" size={17} />
-                    Baixar versão desktop
+                    {desktopRelease.status === "loading"
+                      ? "Verificando instalador..."
+                      : "Baixar versão desktop"}
                   </a>
                 )}
+
                 <Link
                   to="/library"
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-bold text-slate-100 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:px-5"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.05] px-4 py-2.5 text-sm font-bold text-slate-100 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200 sm:px-5"
                 >
-                  Acessar biblioteca
+                  Acessar biblioteca web
                   <ArrowRight aria-hidden="true" size={16} />
                 </Link>
               </div>
+
+              <p className="mt-3 text-xs font-medium text-violet-100/65">
+                {desktopRelease.status === "available"
+                  ? `Instalador oficial (.exe) da versão ${desktopRelease.release.version} · compatível com Windows 10 e 11.`
+                  : desktopRelease.status === "loading"
+                    ? "Consultando o instalador mais recente publicado no GitHub..."
+                    : "Você também pode continuar lendo suas obras da nuvem direto pelo navegador."}
+              </p>
             </div>
 
+            {/* Right Column: Desktop Reader Window Mockup + Character Spotlight */}
             <section
               aria-label={`Categoria em destaque: ${character.category}`}
-              className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[300px] overflow-hidden sm:h-[360px] lg:relative lg:col-start-2 lg:row-start-1 lg:h-auto lg:min-h-[520px]"
+              className="relative flex min-h-[340px] flex-col justify-end overflow-hidden sm:min-h-[390px] lg:min-h-[480px]"
             >
+              {/* Soft ambient backdrop wash */}
               <img
-                key={character.character}
-                src={character.image}
-                alt={`${character.character}, ilustração da categoria ${character.category}`}
-                className={`character-enter absolute inset-x-0 bottom-0 z-10 mx-auto h-[94%] max-h-full drop-shadow-[0_16px_38px_rgba(0,0,0,0.55)] ${character.imageClass}`}
+                src={onePieceWallpaper}
+                alt=""
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-[0.09] blur-sm"
               />
-              <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#211d36]/95 via-[#211d36]/65 to-transparent px-5 pb-4 pt-12 sm:px-8 sm:pb-6 sm:pt-16">
-                <div>
-                  <p
-                    className={`text-xs font-bold uppercase tracking-[0.18em] ${character.accentClass}`}
+
+              {/* Seamless blend into card */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#201C35] via-transparent to-[#201C35]/65 lg:bg-gradient-to-l lg:from-[#201C35]/20 lg:via-transparent lg:to-[#201C35]"
+              />
+
+              {/* Floating Desktop App Window Mockup */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-14 left-1/2 z-10 h-[210px] w-[280px] -translate-x-1/2 rotate-2 overflow-hidden rounded-2xl border border-violet-200/20 bg-[#141322]/95 shadow-[0_24px_55px_rgba(0,0,0,0.65)] sm:h-[235px] sm:w-[330px] lg:bottom-16 lg:left-6 lg:translate-x-0"
+              >
+                {/* Window Titlebar */}
+                <div className="flex items-center justify-between border-b border-white/10 bg-[#1B192E] px-3.5 py-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-rose-400/75" />
+                    <span className="size-2 rounded-full bg-amber-300/75" />
+                    <span className="size-2 rounded-full bg-emerald-400/75" />
+                  </div>
+                  <span className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-violet-200/85">
+                    Librio Desktop
+                  </span>
+                  <span className="rounded bg-violet-400/15 px-1.5 py-0.5 text-[8px] font-bold text-violet-200">
+                    Offline
+                  </span>
+                </div>
+
+                {/* Window Inner Reader Canvas */}
+                <div className="relative h-full p-3">
+                  <img
+                    src={onePieceWallpaper}
+                    alt=""
+                    className="h-28 w-full rounded-lg object-cover opacity-45 sm:h-32"
+                  />
+                  <div className="absolute inset-x-3 top-3 h-28 rounded-lg bg-gradient-to-t from-[#141322] via-[#141322]/35 to-transparent sm:h-32" />
+
+                  <div className="mt-2.5 rounded-xl border border-white/10 bg-[#1D1A30]/90 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2 text-[9px] font-black uppercase tracking-wider text-violet-200">
+                      <span className="truncate">{character.readerMeta}</span>
+                      <span>{character.progress}</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-violet-300 transition-all duration-500"
+                        style={{ width: character.progress }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Foreground Character Cutout */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 top-4 z-20 flex items-end justify-center sm:pl-16 lg:pl-20">
+                <img
+                  key={character.character}
+                  src={character.image}
+                  alt={`${character.character}, ilustração da categoria ${character.category}`}
+                  className={`character-enter drop-shadow-[0_20px_42px_rgba(0,0,0,0.68)] ${character.imageClass}`}
+                />
+              </div>
+
+              {/* Stage Footer Caption + Category Switcher */}
+              <div className="relative z-30 mt-auto bg-gradient-to-t from-[#201C35] via-[#201C35]/92 to-transparent px-5 pb-4 pt-14 sm:px-8 sm:pb-6 lg:px-10">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <p
+                      className={`text-[10px] font-black uppercase tracking-[0.18em] sm:text-xs ${character.accentClass}`}
+                    >
+                      Continue explorando
+                    </p>
+                    <h2 className="mt-0.5 text-lg font-black text-white sm:text-xl">
+                      {character.category}
+                    </h2>
+                    <p className="mt-0.5 max-w-xs text-[11px] text-slate-300 sm:text-xs">
+                      {character.description}
+                    </p>
+                  </div>
+
+                  <div
+                    role="tablist"
+                    aria-label="Categorias em destaque no Librio Desktop"
+                    className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/35 px-2.5 py-1.5 backdrop-blur-xs"
                   >
-                    Continue explorando
-                  </p>
-                  <h2 className="mt-1 text-xl font-black text-white sm:text-2xl">
-                    {character.category}
-                  </h2>
-                  <p className="mt-1 max-w-xs text-xs text-slate-300 sm:text-sm">
-                    {character.description}
-                  </p>
+                    {CHARACTERS.map((item, index) => {
+                      const isActive = index === activeCharacter;
+                      return (
+                        <button
+                          key={item.category}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          aria-label={`Destacar categoria ${item.category}`}
+                          onClick={() => setActiveCharacter(index)}
+                          className={`h-2 rounded-full transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-200 ${
+                            isActive
+                              ? "w-6 bg-violet-300"
+                              : "w-2 bg-white/30 hover:bg-white/60"
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </section>
           </div>
         </section>
 
-        <section
-          aria-labelledby="mobile-banner-title"
-          className="relative mt-6 overflow-hidden rounded-[1.75rem] border border-orange-200/15 bg-[#30231F] shadow-[0_20px_60px_-36px_rgba(249,115,22,0.65)] sm:mt-8"
-        >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              backgroundImage:
-                "radial-gradient(ellipse 70% 100% at 16% 50%, rgba(249,115,22,.28), transparent 75%), radial-gradient(ellipse 70% 100% at 95% 0%, rgba(234,88,12,.18), transparent 70%)",
-            }}
-          />
-          <div className="relative grid min-h-[390px] grid-cols-1 items-center md:min-h-[280px] md:grid-cols-[0.85fr_1.15fr] lg:min-h-[310px] lg:grid-cols-2">
-            <div className="pointer-events-none relative order-2 h-52 overflow-hidden md:order-1 md:h-full md:min-h-[280px] lg:min-h-[310px]">
-              <img
-                src={mobileBannerArt}
-                alt="Naruto em pose de ação, ilustração do banner do app móvel Librio"
-                className="absolute inset-x-0 bottom-0 mx-auto h-[115%] max-w-[92%] object-contain object-bottom drop-shadow-[0_16px_28px_rgba(0,0,0,0.42)] transition-transform duration-500 md:h-[112%] md:max-w-full md:hover:scale-[1.03]"
-              />
-              <span className="absolute bottom-4 left-5 rotate-[-4deg] bg-amber-200 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-[#31200D] sm:left-8">
-                Android
-              </span>
-            </div>
-            <div className="relative order-1 px-5 pb-1 pt-6 sm:px-8 sm:pt-8 md:order-2 md:py-8 lg:px-12">
-              <span className="inline-flex items-center gap-2 rounded-full border border-orange-100/20 bg-black/20 px-3 py-1.5 text-[9px] font-black uppercase tracking-[0.17em] text-orange-100 sm:text-[10px]">
-                <Sparkles aria-hidden="true" size={13} />
-                Leve sua biblioteca com você
-              </span>
-              <h2
-                id="mobile-banner-title"
-                className="mt-3 text-2xl font-black leading-tight tracking-[-0.04em] text-white sm:text-3xl lg:text-4xl"
-              >
-                Suas histórias. <span className="text-orange-200">Em qualquer lugar.</span>
-              </h2>
-              <p className="mt-2 max-w-xl text-xs leading-5 text-orange-50/75 sm:text-sm sm:leading-6">
-                Leia livros, quadrinhos e mangás no celular. Continue de onde parou e mantenha sua biblioteca sincronizada.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-3 sm:mt-5">
-                {mobileRelease.status === "available" ? (
-                  <a
-                    href={ANDROID_APK_URL}
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-amber-200 px-4 py-2 text-xs font-extrabold text-[#30200F] transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:min-h-11 sm:px-5 sm:text-sm"
-                  >
-                    <Download aria-hidden="true" size={16} />
-                    Baixar para Android
-                  </a>
-                ) : (
-                  <a
-                    href={RELEASES_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-amber-200 px-4 py-2 text-xs font-extrabold text-[#30200F] transition hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:min-h-11 sm:px-5 sm:text-sm"
-                  >
-                    <Download aria-hidden="true" size={16} />
-                    {mobileRelease.status === "loading" ? "Verificando versão…" : "Ver versão para Android"}
-                  </a>
-                )}
-                <span className="text-[10px] font-semibold text-orange-100/65 sm:text-xs">
-                  {mobileRelease.status === "available"
-                    ? `Versão ${mobileRelease.release.version}`
-                    : "APK disponível nas releases do Librio"}
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
+        <MobileDownloadBanner
+          releaseState={mobileRelease}
+          fallbackApkUrl={ANDROID_APK_URL}
+          releasesUrl={RELEASES_URL}
+        />
 
         <section aria-labelledby="platforms-title" className="mt-8 sm:mt-10">
           <header className="mb-5">
@@ -371,46 +491,82 @@ export default function DownloadPage() {
             </h2>
           </header>
           <div className="grid gap-4 sm:grid-cols-2 sm:gap-5">
-            <article className="rounded-2xl border border-white/[0.08] bg-[#202435]/90 p-5 sm:p-6">
-              <span className="inline-flex size-11 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
-                <Monitor aria-hidden="true" size={22} />
-              </span>
-              <h3 className="mt-4 text-lg font-bold">Desktop para Windows</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-400">
-                Instale o aplicativo para ler arquivos locais e acessar sua
-                biblioteca. As atualizações são baixadas automaticamente quando
-                uma nova release é publicada.
-              </p>
-              <p className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-violet-200">
-                <Check aria-hidden="true" size={15} />
-                {desktopRelease.status === "available"
-                  ? `Versão ${desktopRelease.release.version} disponível`
-                  : desktopRelease.status === "error"
-                    ? "Consulte as releases no GitHub"
-                    : desktopRelease.status === "loading"
-                      ? "Verificando versão disponível..."
-                      : "Primeiro instalador ainda não publicado"}
-              </p>
+            <article className="flex flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#202435]/90 p-5 sm:p-6">
+              <div>
+                <span className="inline-flex size-11 items-center justify-center rounded-xl bg-violet-300/10 text-violet-200">
+                  <Monitor aria-hidden="true" size={22} />
+                </span>
+                <h3 className="mt-4 text-lg font-bold">Desktop para Windows</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  Instale o aplicativo para ler arquivos locais e acessar sua
+                  biblioteca. As atualizações são baixadas automaticamente quando
+                  uma nova release é publicada.
+                </p>
+              </div>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                {desktopRelease.status === "available" ? (
+                  <a
+                    href={desktopRelease.release.downloadUrl}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-violet-300 px-4 py-2 text-xs font-extrabold text-[#1E1733] transition hover:bg-violet-200 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+                  >
+                    <Download aria-hidden="true" size={15} />
+                    Baixar .exe ({desktopRelease.release.version})
+                  </a>
+                ) : (
+                  <a
+                    href={RELEASES_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-bold text-slate-100 transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-200"
+                  >
+                    Ver releases Windows
+                    <ExternalLink aria-hidden="true" size={14} />
+                  </a>
+                )}
+                <p className="inline-flex items-center gap-2 text-xs font-bold text-violet-200">
+                  <Check aria-hidden="true" size={15} />
+                  {desktopRelease.status === "available"
+                    ? `Versão ${desktopRelease.release.version} disponível`
+                    : desktopRelease.status === "error"
+                      ? "Consulte as releases no GitHub"
+                      : desktopRelease.status === "loading"
+                        ? "Verificando versão disponível..."
+                        : "Primeiro instalador ainda não publicado"}
+                </p>
+              </div>
             </article>
-            <article className="rounded-2xl border border-white/[0.08] bg-[#202435]/90 p-5 sm:p-6">
-              <span className="inline-flex size-11 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-200">
-                <Smartphone aria-hidden="true" size={22} />
-              </span>
-              <h3 className="mt-4 text-lg font-bold">Celular e tablet</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-400">
-                Instale o APK para Android e leve suas obras na nuvem e no
-                aparelho para ler onde estiver.
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
+
+            <article className="flex flex-col justify-between rounded-2xl border border-white/[0.08] bg-[#202435]/90 p-5 sm:p-6">
+              <div>
+                <span className="inline-flex size-11 items-center justify-center rounded-xl bg-emerald-300/10 text-emerald-200">
+                  <Smartphone aria-hidden="true" size={22} />
+                </span>
+                <h3 className="mt-4 text-lg font-bold">Celular e tablet</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  Instale o APK para Android e leve suas obras na nuvem e no
+                  aparelho para ler onde estiver.
+                </p>
+              </div>
+              <div className="mt-5 flex flex-wrap items-center gap-3">
                 {mobileRelease.status === "available" ? (
-                  <a href={ANDROID_APK_URL} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+                  <a
+                    href={mobileRelease.release.downloadUrl}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+                  >
                     <Download aria-hidden="true" size={15} />
                     Baixar APK ({mobileRelease.release.version})
                   </a>
                 ) : (
-                  <a href={RELEASES_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+                  <a
+                    href={RELEASES_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-emerald-200 px-4 py-2 text-xs font-extrabold text-[#15271F] transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+                  >
                     <Download aria-hidden="true" size={15} />
-                    {mobileRelease.status === "loading" ? "Verificando APK…" : "Ver releases do Android"}
+                    {mobileRelease.status === "loading"
+                      ? "Verificando APK…"
+                      : "Ver releases do Android"}
                   </a>
                 )}
                 <p className="inline-flex items-center gap-2 text-xs font-bold text-emerald-200">
