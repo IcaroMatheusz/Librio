@@ -27,7 +27,7 @@ import { getBooks } from '../src/lib/library';
 import { requireSupabase } from '../src/lib/supabase';
 import type { Book } from '../src/lib/types';
 
-const bakumanArt = require('../../assets/bakuman.png');
+const bakumanArt = require('../assets/bakuman.png');
 
 type Volume = {
   id: string;

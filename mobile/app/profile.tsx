@@ -34,7 +34,7 @@ import {
 } from '../src/lib/account';
 import { requireSupabase } from '../src/lib/supabase';
 
-const wallpaper = require('../../assets/hellboy_wallpaper.jpg');
+const wallpaper = require('../assets/hellboy_wallpaper.jpg');
 
 export default function ProfilePage() {
   const { isTablet, contentPadding, maxContentWidth } = useResponsiveLayout();

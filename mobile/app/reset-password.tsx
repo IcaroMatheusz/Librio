@@ -15,7 +15,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Badge, palette } from '../src/components/atoms';
 import { requireSupabase } from '../src/lib/supabase';
 
-const wallpaper = require('../../assets/onepiece_wallpaper.jpg');
+const wallpaper = require('../assets/onepiece_wallpaper.jpg');
 
 export default function ResetPassword() {
   const { code, token_hash } = useLocalSearchParams<{

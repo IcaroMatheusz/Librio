@@ -49,10 +49,10 @@ import { checkForAppUpdate, dismissAppUpdate, type AppUpdate } from '../src/lib/
 import type { Book, LocalBook } from '../src/lib/types';
 
 // Character Assets for Educational Guides and Banners
-const heroBannerArt = require('../../assets/absoluteflash.png');
-const nightwingArt = require('../../assets/nightwing.png');
-const narutoArt = require('../../assets/naruto.png');
-const gokuArt = require('../../assets/goku.webp');
+const heroBannerArt = require('../assets/absoluteflash.png');
+const nightwingArt = require('../assets/nightwing.png');
+const narutoArt = require('../assets/naruto.png');
+const gokuArt = require('../assets/goku.webp');
 
 type VolumePreview = { id: string; title: string; author: string };
 

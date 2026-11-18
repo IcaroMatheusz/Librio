@@ -20,8 +20,8 @@ import type { Session } from '@supabase/supabase-js';
 import { requireSupabase } from '../src/lib/supabase';
 import { Badge, BookIcon, palette } from '../src/components/atoms';
 
-const wallpaper = require('../../assets/onepiece_wallpaper.jpg');
-const mascotIcon = require('../../assets/librio-icon.png');
+const wallpaper = require('../assets/onepiece_wallpaper.jpg');
+const mascotIcon = require('../assets/librio-icon.png');
 
 export default function SignIn() {
   const [session, setSession] = useState<Session | null>(null);

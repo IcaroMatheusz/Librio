@@ -15,8 +15,8 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Badge, palette } from '../src/components/atoms';
 import { requireSupabase } from '../src/lib/supabase';
 
-const wallpaper = require('../../assets/hellboy_wallpaper.jpg');
-const mascotIcon = require('../../assets/librio-icon.png');
+const wallpaper = require('../assets/hellboy_wallpaper.jpg');
+const mascotIcon = require('../assets/librio-icon.png');
 
 export default function Register() {
   const [username, setUsername] = useState('');
