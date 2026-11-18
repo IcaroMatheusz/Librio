@@ -333,9 +333,9 @@ export function ComicReader({
         return;
       }
       if (event.key === "ArrowLeft") {
-        changePage(-1);
+        changePage(readingMode === "manga" ? 1 : -1);
       } else if (event.key === "ArrowRight") {
-        changePage(1);
+        changePage(readingMode === "manga" ? -1 : 1);
       } else if (event.key === "+" || event.key === "=") {
         setZoom((current) =>
           Math.min(3, Math.round((current + 0.1) * 10) / 10),
@@ -355,14 +355,18 @@ export function ComicReader({
 
   function navigateFromPageClick(event: MouseEvent<HTMLElement>) {
     if (pinchZoom.consumePinchClick()) return;
-    if (readingMode !== "page") return;
+    if (readingMode === "vertical") return;
     if (event.button !== 0 || !(event.target instanceof HTMLImageElement)) {
       return;
     }
 
     const bounds = event.target.getBoundingClientRect();
     const clickedRightSide = event.clientX >= bounds.left + bounds.width / 2;
-    changePage(clickedRightSide ? 1 : -1);
+    if (readingMode === "manga") {
+      changePage(clickedRightSide ? -1 : 1);
+    } else {
+      changePage(clickedRightSide ? 1 : -1);
+    }
   }
 
   if (loading) {
@@ -505,12 +509,20 @@ export function ComicReader({
             : "bg-stone-200"
         }`}
       >
-        {readingMode === "page" && (
+        {readingMode !== "vertical" && (
         <button
           type="button"
-          onClick={() => changePage(-1)}
-          disabled={pageIndex === 0 && !onStart}
-          aria-label="Página anterior"
+          onClick={() => changePage(readingMode === "manga" ? 1 : -1)}
+          disabled={
+            readingMode === "manga"
+              ? pageIndex === pages.length - 1 && !onEnd
+              : pageIndex === 0 && !onStart
+          }
+          aria-label={
+            readingMode === "manga"
+              ? "Próxima página (Mangá RTL)"
+              : "Página anterior"
+          }
           className={`absolute left-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:left-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
             theme === "night"
               ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
@@ -587,12 +599,20 @@ export function ComicReader({
             />
           )}
         </div>
-        {readingMode === "page" && (
+        {readingMode !== "vertical" && (
         <button
           type="button"
-          onClick={() => changePage(1)}
-          disabled={pageIndex === pages.length - 1 && !onEnd}
-          aria-label="Próxima página"
+          onClick={() => changePage(readingMode === "manga" ? -1 : 1)}
+          disabled={
+            readingMode === "manga"
+              ? pageIndex === 0 && !onStart
+              : pageIndex === pages.length - 1 && !onEnd
+          }
+          aria-label={
+            readingMode === "manga"
+              ? "Página anterior (Mangá RTL)"
+              : "Próxima página"
+          }
           className={`absolute right-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:right-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
             theme === "night"
               ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"

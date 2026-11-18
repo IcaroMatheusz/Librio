@@ -515,14 +515,19 @@ export function EpubReader({
 
   function handlePageClick(event: MouseEvent<HTMLDivElement>) {
     if (
-      readingMode !== "page" ||
+      readingMode === "vertical" ||
       event.button !== 0 ||
       !(event.target instanceof HTMLElement)
     ) {
       return;
     }
     const bounds = event.currentTarget.getBoundingClientRect();
-    turnPage(event.clientX >= bounds.left + bounds.width / 2 ? 1 : -1);
+    const clickedRightSide = event.clientX >= bounds.left + bounds.width / 2;
+    if (readingMode === "manga") {
+      turnPage(clickedRightSide ? -1 : 1);
+    } else {
+      turnPage(clickedRightSide ? 1 : -1);
+    }
   }
 
   useEffect(() => {
@@ -536,13 +541,15 @@ export function EpubReader({
       ) {
         return;
       }
-      if (event.key === "ArrowLeft") {
-        if (readingMode === "page") turnPage(-1);
-        else changeChapter(-1);
-      }
-      if (event.key === "ArrowRight") {
-        if (readingMode === "page") turnPage(1);
-        else changeChapter(1);
+      if (readingMode === "manga") {
+        if (event.key === "ArrowLeft") turnPage(1);
+        else if (event.key === "ArrowRight") turnPage(-1);
+      } else if (readingMode === "page") {
+        if (event.key === "ArrowLeft") turnPage(-1);
+        else if (event.key === "ArrowRight") turnPage(1);
+      } else {
+        if (event.key === "ArrowLeft") changeChapter(-1);
+        else if (event.key === "ArrowRight") changeChapter(1);
       }
     }
 
@@ -703,20 +710,24 @@ export function EpubReader({
             ? "bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.07),transparent_65%)]"
             : "bg-stone-200"
         } ${
-          readingMode === "page"
+          readingMode !== "vertical"
             ? "grid-cols-1 sm:grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
             : "grid-cols-1"
         }`}
       >
-      {readingMode === "page" && (
+      {readingMode !== "vertical" && (
       <button
           type="button"
           onClick={() =>
-            readingMode === "page" ? turnPage(-1) : changeChapter(-1)
+            readingMode === "manga" ? turnPage(1) : turnPage(-1)
           }
-          disabled={chapterIndex === 0 && chapterProgress === 0}
+          disabled={
+            readingMode === "manga"
+              ? chapterIndex === book.chapters.length - 1 && chapterProgress >= 1
+              : chapterIndex === 0 && chapterProgress === 0
+          }
           aria-label={
-            readingMode === "page" ? "Página anterior" : "Capítulo anterior"
+            readingMode === "manga" ? "Próxima página (Mangá RTL)" : "Página anterior"
           }
           className={`z-10 my-auto hidden size-10 items-center justify-center justify-self-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:inline-flex ${
             theme === "night"
@@ -739,7 +750,7 @@ export function EpubReader({
               : "Leitura contínua do EPUB"
           }
           className={`epub-page-viewport min-h-0 min-w-0 rounded-xl px-4 py-4 transition-colors duration-300 focus-visible:outline-2 focus-visible:outline-violet-500 sm:px-8 sm:py-8 lg:px-14 ${
-            readingMode === "page"
+            readingMode !== "vertical"
               ? "overflow-x-auto overflow-y-hidden"
               : "overflow-y-auto"
           } ${
@@ -749,7 +760,7 @@ export function EpubReader({
           }`}
           style={{ fontSize: `${fontSize}px` }}
         >
-          {readingMode === "page" ? (
+          {readingMode !== "vertical" ? (
             <article
               className="h-full max-w-none font-serif leading-[1.85]"
               style={{
@@ -788,18 +799,19 @@ export function EpubReader({
             </div>
           )}
         </div>
-        {readingMode === "page" && (
+        {readingMode !== "vertical" && (
         <button
           type="button"
           onClick={() =>
-            readingMode === "page" ? turnPage(1) : changeChapter(1)
+            readingMode === "manga" ? turnPage(-1) : turnPage(1)
           }
           disabled={
-            chapterIndex === book.chapters.length - 1 &&
-            chapterProgress >= 1
+            readingMode === "manga"
+              ? chapterIndex === 0 && chapterProgress === 0
+              : chapterIndex === book.chapters.length - 1 && chapterProgress >= 1
           }
           aria-label={
-            readingMode === "page" ? "Próxima página" : "Próximo capítulo"
+            readingMode === "manga" ? "Página anterior (Mangá RTL)" : "Próxima página"
           }
           className={`z-10 my-auto hidden size-10 items-center justify-center justify-self-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:inline-flex ${
             theme === "night"

@@ -139,7 +139,7 @@ export function PdfReader({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (
-      readingMode !== "page" ||
+      readingMode === "vertical" ||
       !pdfDocument ||
       !canvas ||
       !isDocumentVisible
@@ -205,7 +205,7 @@ export function PdfReader({
         }
         displayContext.drawImage(renderCanvas, 0, 0);
         window.requestAnimationFrame(() => {
-          if (cancelled || readingMode !== "page") return;
+          if (cancelled || readingMode === "vertical") return;
           const viewportElement = pageViewportRef.current;
           if (!viewportElement) return;
           viewportElement.scrollLeft = Math.max(
@@ -392,9 +392,9 @@ export function PdfReader({
         return;
       }
       if (event.key === "ArrowLeft") {
-        changePage(-1);
+        changePage(readingMode === "manga" ? 1 : -1);
       } else if (event.key === "ArrowRight") {
-        changePage(1);
+        changePage(readingMode === "manga" ? -1 : 1);
       } else if (event.key === "+" || event.key === "=") {
         setZoom((current) =>
           Math.min(3, Math.round((current + 0.1) * 10) / 10),
@@ -410,13 +410,13 @@ export function PdfReader({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [changePage, pdfDocument]);
+  }, [changePage, pdfDocument, readingMode]);
 
   useEffect(() => {
     const reader =
-      readingMode === "page"
-        ? pageViewportRef.current
-        : continuousViewportRef.current;
+      readingMode === "vertical"
+        ? continuousViewportRef.current
+        : pageViewportRef.current;
     if (!reader || loading) return;
 
     const observer = new ResizeObserver(([entry]) => {
@@ -439,14 +439,18 @@ export function PdfReader({
 
   function navigateFromPageClick(event: MouseEvent<HTMLDivElement>) {
     if (pinchZoom.consumePinchClick()) return;
-    if (readingMode !== "page") return;
+    if (readingMode === "vertical") return;
     if (event.button !== 0 || !(event.target instanceof HTMLCanvasElement)) {
       return;
     }
 
     const bounds = event.target.getBoundingClientRect();
     const clickedRightSide = event.clientX >= bounds.left + bounds.width / 2;
-    changePage(clickedRightSide ? 1 : -1);
+    if (readingMode === "manga") {
+      changePage(clickedRightSide ? -1 : 1);
+    } else {
+      changePage(clickedRightSide ? 1 : -1);
+    }
   }
 
   if (loading) {
@@ -603,17 +607,25 @@ export function PdfReader({
             ? "bg-[radial-gradient(ellipse_at_center,rgba(139,92,246,0.07),transparent_65%)]"
             : "bg-stone-200"
         } ${
-          readingMode === "page"
+          readingMode !== "vertical"
             ? "grid-cols-1 grid-rows-[minmax(0,1fr)] items-stretch gap-1 overflow-hidden sm:grid-cols-[2.75rem_minmax(0,1fr)_2.75rem]"
             : "grid-cols-1 grid-rows-[minmax(0,1fr)] overflow-hidden"
         }`}
       >
-        {readingMode === "page" && (
+        {readingMode !== "vertical" && (
         <button
           type="button"
-          onClick={() => changePage(-1)}
-          disabled={pageNumber <= 1 && !onStart}
-          aria-label="Página anterior"
+          onClick={() => changePage(readingMode === "manga" ? 1 : -1)}
+          disabled={
+            readingMode === "manga"
+              ? pageNumber >= pdfDocument.numPages && !onEnd
+              : pageNumber <= 1 && !onStart
+          }
+          aria-label={
+            readingMode === "manga"
+              ? "Próxima página (Mangá RTL)"
+              : "Página anterior"
+          }
           className={`absolute left-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:left-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
             theme === "night"
               ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"
@@ -688,12 +700,20 @@ export function PdfReader({
             />
           </div>
         )}
-        {readingMode === "page" && (
+        {readingMode !== "vertical" && (
         <button
           type="button"
-          onClick={() => changePage(1)}
-          disabled={pageNumber >= pdfDocument.numPages && !onEnd}
-          aria-label="Próxima página"
+          onClick={() => changePage(readingMode === "manga" ? -1 : 1)}
+          disabled={
+            readingMode === "manga"
+              ? pageNumber <= 1 && !onStart
+              : pageNumber >= pdfDocument.numPages && !onEnd
+          }
+          aria-label={
+            readingMode === "manga"
+              ? "Página anterior (Mangá RTL)"
+              : "Próxima página"
+          }
           className={`absolute right-1 top-1/2 z-10 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full border shadow-lg transition focus-visible:outline-2 focus-visible:outline-violet-500 disabled:opacity-30 sm:relative sm:right-auto sm:top-auto sm:size-10 sm:translate-y-0 sm:justify-self-center ${
             theme === "night"
               ? "border-white/10 bg-[#202435]/90 text-slate-200 hover:border-violet-200/30 hover:bg-violet-300/15"

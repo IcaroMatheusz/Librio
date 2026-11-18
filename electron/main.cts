@@ -264,6 +264,8 @@ function isAppUrl(rawUrl: string): boolean {
 }
 
 async function createMainWindow(): Promise<void> {
+  const iconPath = join(__dirname, "../../public/librio-icon.png");
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -271,6 +273,13 @@ async function createMainWindow(): Promise<void> {
     minHeight: 640,
     show: false,
     backgroundColor: "#171A27",
+    icon: iconPath,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#171A27",
+      symbolColor: "#C4B5FD",
+      height: 38,
+    },
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,

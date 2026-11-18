@@ -50,6 +50,7 @@
   "build": {
     "appId": "com.librio.desktop",
     "productName": "Librio",
+    "icon": "public/librio-icon.png",
     "directories": {
       "output": "release"
     },

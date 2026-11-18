@@ -106,7 +106,12 @@ function inlineChapterAssets(content: string, chapterPath: string, files: Record
   return result;
 }
 
-export async function readEpubHtml(uri: string, fontScale: number, initialProgress = 0) {
+export async function readEpubHtml(
+  uri: string,
+  fontScale: number,
+  initialProgress = 0,
+  readingMode: 'page' | 'manga' | 'vertical' = 'vertical'
+) {
   const files = await readZip(uri);
   const container = files['META-INF/container.xml'];
   if (!container) throw new Error('Este EPUB não possui um índice válido.');
@@ -136,9 +141,40 @@ export async function readEpubHtml(uri: string, fontScale: number, initialProgre
   const safeScale = Math.max(0.85, Math.min(1.6, fontScale));
   const content = chapters.join('<div class="page-break"></div>');
   const startAt = Math.max(0, Math.min(100, initialProgress));
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta charset="utf-8"><style>
-    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0 auto;padding:28px 24px 76px;max-width:760px;background:#191b29;color:#f2eff9;font: ${18 * safeScale}px/1.78 Georgia,serif;letter-spacing:.01em}img{max-width:100%;height:auto;display:block;margin:24px auto;border-radius:8px}p{margin:0 0 1.2em}h1,h2,h3{font-family:system-ui,sans-serif;line-height:1.3;color:#fff;margin:1.6em 0 .7em}a{color:#c7b5ff}blockquote{border-left:3px solid #a78bfa;padding-left:16px;color:#c1bfd0}.chapter{padding-bottom:32px}.page-break{height:1px;margin:36px 0;background:#363849}
-  </style></head><body>${content}<script>let last=0;window.addEventListener('scroll',()=>{clearTimeout(last);last=setTimeout(()=>{const max=document.documentElement.scrollHeight-innerHeight;const progress=max>0?Math.round(scrollY/max*100):100;window.ReactNativeWebView?.postMessage(JSON.stringify({type:'progress',progress}));},180)});window.addEventListener('load',()=>window.scrollTo(0,(document.documentElement.scrollHeight-innerHeight)*${startAt / 100}));</script></body></html>`;
+  const isRtl = readingMode === 'manga';
+
+  return `<!doctype html><html dir="${isRtl ? 'rtl' : 'ltr'}"><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta charset="utf-8"><style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    body{
+      margin:0 auto;
+      padding:28px 24px 88px;
+      max-width:820px;
+      background:#171a27;
+      color:#f2eff9;
+      font:${18 * safeScale}px/1.8 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Georgia, serif;
+      letter-spacing:.01em;
+      ${isRtl ? 'direction:rtl;text-align:right;' : 'direction:ltr;text-align:left;'}
+    }
+    img{max-width:100%;height:auto;display:block;margin:24px auto;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,0.35)}
+    p{margin:0 0 1.25em}
+    h1,h2,h3{font-family:system-ui,-apple-system,sans-serif;line-height:1.3;color:#ffffff;margin:1.6em 0 .7em}
+    a{color:#c4b5fd;text-decoration:none}
+    blockquote{border-${isRtl ? 'right' : 'left'}:3px solid #a78bfa;padding-${isRtl ? 'right' : 'left'}:16px;color:#c1bfd0;margin:1.4em 0}
+    .chapter{padding-bottom:36px}
+    .page-break{height:1px;margin:40px 0;background:rgba(255,255,255,0.08)}
+  </style></head><body>${content}<script>
+    let last=0;
+    window.addEventListener('scroll',()=>{
+      clearTimeout(last);
+      last=setTimeout(()=>{
+        const max=document.documentElement.scrollHeight-innerHeight;
+        const progress=max>0?Math.round(scrollY/max*100):100;
+        window.ReactNativeWebView?.postMessage(JSON.stringify({type:'progress',progress}));
+      },180);
+    });
+    window.addEventListener('load',()=>window.scrollTo(0,(document.documentElement.scrollHeight-innerHeight)*${startAt / 100}));
+  </script></body></html>`;
 }
 
 export function bytesToBase64(bytes: Uint8Array) {

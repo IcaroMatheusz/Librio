@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 
 import { Loading } from "./components/Loading";
+import { DesktopTitleBar } from "./components/DesktopTitleBar";
 import { AuthProvider } from "./contexts/AuthContext";
 import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { ProtectedRoute, PublicOnlyRoute } from "./components/ProtectedRoute";
@@ -28,6 +29,7 @@ export default function App() {
       <DesktopUpdateProvider>
         <AuthProvider>
           <Router>
+            <DesktopTitleBar />
             <Routes>
             {/* Rotas públicas */}
             <Route element={<PublicOnlyRoute />}>
