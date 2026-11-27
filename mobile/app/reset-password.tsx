@@ -12,10 +12,13 @@ import {
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Linking from 'expo-linking';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Badge, palette } from '../src/components/atoms';
+import { palette } from '../src/components/atoms';
 import { requireSupabase } from '../src/lib/supabase';
 
-const wallpaper = require('../assets/onepiece_wallpaper.jpg');
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { wallpapers } from '../src/components/WallpaperHero';
+
+const wallpaper = wallpapers.auth;
 
 export default function ResetPassword() {
   const { code, token_hash } = useLocalSearchParams<{
@@ -24,11 +27,14 @@ export default function ResetPassword() {
   }>();
   const [password, setPassword] = useState('');
   const [ready, setReady] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Validando o link de recuperação…');
 
   useEffect(() => {
     let active = true;
+    setReady(false);
+    setChecking(true);
     void (async () => {
       try {
         const client = requireSupabase();
@@ -77,6 +83,8 @@ export default function ResetPassword() {
               : 'Não foi possível validar o link de recuperação.'
           );
         }
+      } finally {
+        if (active) setChecking(false);
       }
     })();
     return () => {
@@ -110,57 +118,57 @@ export default function ResetPassword() {
   return (
     <ImageBackground source={wallpaper} resizeMode="cover" style={s.bg}>
       <View style={s.shade} />
-      <ScrollView
-        contentContainerStyle={s.content}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Pressable onPress={() => router.replace('/')} hitSlop={12}>
-          <Text style={s.back}>‹ Voltar ao login</Text>
-        </Pressable>
+      <SafeAreaView style={s.bgSafe}>
+        <ScrollView
+          contentContainerStyle={s.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Pressable onPress={() => router.replace('/')} hitSlop={12}>
+            <Text style={s.back}>‹ Voltar ao login</Text>
+          </Pressable>
 
-        <Animated.View entering={FadeInDown.duration(500)} style={s.card}>
-          <View style={s.badgeWrap}>
-            <Badge label="ACESSO À SUA ESTANTE" variant="violet" />
-          </View>
-          <Text style={s.title}>Nova senha</Text>
-          <Text style={s.description}>{message}</Text>
+          <Animated.View entering={FadeInDown.duration(500)} style={s.card}>
+            <Text style={s.title}>Nova senha</Text>
+            <Text style={s.description}>{message}</Text>
 
-          {ready ? (
-            <>
-              <Text style={s.label}>Nova senha</Text>
-              <TextInput
-                style={s.input}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoComplete="new-password"
-                placeholder="Pelo menos seis caracteres"
-                placeholderTextColor={palette.muted}
-              />
-              <Pressable
-                style={[s.button, busy && { opacity: 0.7 }]}
-                onPress={() => void save()}
-                disabled={busy}
-              >
-                <Text style={s.buttonText}>
-                  {busy ? 'Salvando nova senha…' : 'Atualizar senha  →'}
-                </Text>
-              </Pressable>
-            </>
-          ) : (
-            <ActivityIndicator style={{ marginTop: 24 }} color={palette.violet} />
-          )}
-        </Animated.View>
-      </ScrollView>
+            {ready ? (
+              <>
+                <Text style={s.label}>Nova senha</Text>
+                <TextInput
+                  style={s.input}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  autoComplete="new-password"
+                  placeholder="Pelo menos seis caracteres"
+                  placeholderTextColor={palette.muted}
+                />
+                <Pressable
+                  style={[s.button, busy && { opacity: 0.7 }]}
+                  onPress={() => void save()}
+                  disabled={busy}
+                >
+                  <Text style={s.buttonText}>
+                    {busy ? 'Salvando nova senha…' : 'Atualizar senha  →'}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              checking && <ActivityIndicator style={{ marginTop: 24 }} color={palette.violet} />
+            )}
+          </Animated.View>
+        </ScrollView>
+      </SafeAreaView>
     </ImageBackground>
   );
 }
 
 const s = StyleSheet.create({
+  bgSafe: { flex: 1 },
   bg: { flex: 1, backgroundColor: palette.background },
   shade: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(13, 15, 25, 0.75)',
+    backgroundColor: 'rgba(12, 10, 18, 0.67)',
   },
   content: {
     flexGrow: 1,
@@ -182,10 +190,7 @@ const s = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(25, 28, 43, 0.94)',
-  },
-  badgeWrap: {
-    marginBottom: 6,
+    backgroundColor: 'rgba(26, 22, 36, 0.96)',
   },
   title: {
     fontSize: 28,

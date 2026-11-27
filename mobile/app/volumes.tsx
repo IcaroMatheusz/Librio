@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
   Alert,
-  ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,7 +15,6 @@ import {
   Badge,
   BookIcon,
   Brand,
-  Eyebrow,
   Heading,
   palette,
   Screen,
@@ -27,7 +25,7 @@ import { getBooks } from '../src/lib/library';
 import { requireSupabase } from '../src/lib/supabase';
 import type { Book } from '../src/lib/types';
 
-const bakumanArt = require('../assets/bakuman.png');
+import { WallpaperHero, wallpapers } from '../src/components/WallpaperHero';
 
 type Volume = {
   id: string;
@@ -190,34 +188,17 @@ export default function Volumes() {
         {/* Navigation Bar */}
         <View style={s.nav}>
           <Pressable onPress={() => router.replace('/library')}>
-            <Brand showBadge />
+            <Brand />
           </Pressable>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Text style={s.back}>‹ Voltar à biblioteca</Text>
           </Pressable>
         </View>
 
-        {/* Hero Saga Header Banner */}
-        <ImageBackground
-          source={bakumanArt}
-          imageStyle={{ borderRadius: 24, opacity: 0.32 }}
-          style={[s.banner, isTablet && s.bannerTablet]}
-        >
-          <View style={s.bannerOverlay} />
-          <View style={s.bannerContent}>
-            <View style={s.badgeRow}>
-              <Badge label="ORGANIZAÇÃO EM SAGAS" variant="violet" />
-            </View>
-            <Heading style={s.bannerTitle}>Volumes & Sagas</Heading>
-            <Text style={s.bannerSubtitle}>
-              Reúna capítulos soltos de mangás, quadrinhos ou livros em volumes unificados
-              para ler na ordem cronológica ideal.
-            </Text>
-          </View>
-          <View style={s.bannerIcon}>
-            <BookIcon size={26} color={palette.violetLight} />
-          </View>
-        </ImageBackground>
+        <WallpaperHero source={wallpapers.volumes} tall={isTablet}>
+          <Heading style={s.bannerTitle}>Volumes</Heading>
+          <Text style={s.bannerSubtitle}>Agrupe suas obras e escolha a ordem dos capítulos.</Text>
+        </WallpaperHero>
 
         {/* Action Button */}
         <Action
@@ -401,7 +382,7 @@ export default function Volumes() {
 
 const s = StyleSheet.create({
   page: {
-    paddingTop: 4,
+    paddingTop: 10,
     paddingBottom: 40,
     gap: 16,
   },
@@ -416,31 +397,6 @@ const s = StyleSheet.create({
     fontWeight: '800',
     fontSize: 12,
   },
-  banner: {
-    height: 175,
-    borderRadius: 24,
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
-    padding: 20,
-    backgroundColor: '#292139',
-    borderWidth: 1,
-    borderColor: 'rgba(216,204,255,.2)',
-  },
-  bannerTablet: {
-    height: 200,
-    padding: 26,
-  },
-  bannerOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(20,17,31,.65)',
-  },
-  bannerContent: {
-    zIndex: 1,
-    maxWidth: '80%',
-  },
-  badgeRow: {
-    marginBottom: 6,
-  },
   bannerTitle: {
     fontSize: 26,
     lineHeight: 30,
@@ -451,19 +407,6 @@ const s = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: 6,
-  },
-  bannerIcon: {
-    position: 'absolute',
-    right: 18,
-    top: 18,
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(20,17,31,.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(216,204,255,.2)',
   },
   formSurface: {
     padding: 20,
@@ -489,7 +432,7 @@ const s = StyleSheet.create({
   input: {
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#191D2B',
+    backgroundColor: palette.background,
     borderWidth: 1,
     borderColor: palette.border,
     paddingHorizontal: 14,

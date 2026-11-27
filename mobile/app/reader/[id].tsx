@@ -1,1069 +1,426 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Asset } from 'expo-asset';
 import { Directory, File, Paths } from 'expo-file-system';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Dimensions,
-  FlatList,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-  type ViewStyle,
-} from 'react-native';
-import { WebView } from 'react-native-webview';
-import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { Action, BookIcon, palette } from '../../src/components/atoms';
+import ComicReader from '../../src/components/ComicReader';
 import PdfReader, { type ReadingMode } from '../../src/components/PdfReader';
-import { BookIcon, palette } from '../../src/components/atoms';
+import RarExtractor from '../../src/components/RarExtractor';
 import { getBookProgress, getBookUrl, markBookOpened, saveBookProgress } from '../../src/lib/library';
-import { bytesToBase64, readComicZip, readEpubHtml, type ReaderPage } from '../../src/lib/reader';
+import { findLocalBook, getLocalFile, localProgressKey, reconnectLocalBook } from '../../src/lib/local';
+import { readComicZip, readEpubHtml, type ReaderPage } from '../../src/lib/reader';
 import { requireSupabase } from '../../src/lib/supabase';
-import type { Book } from '../../src/lib/types';
+import { getReadingFormat, type Book, type LocalBook, type ReadingFormat } from '../../src/lib/types';
 
-type ReaderFile = { file: File; format: string; title: string; cloudBookId?: string };
-type ReaderEvent = { type?: string; message?: string; current?: number; total?: number; progress?: number };
+type Source = { file: File; format: ReadingFormat; title: string; key: string; cloudId?: string };
+type Checkpoint = { percent: number; page?: number };
+const modes: { value: ReadingMode; label: string }[] = [
+  { value: 'page', label: 'Páginas' },
+  { value: 'manga', label: 'Mangá' },
+  { value: 'vertical', label: 'Rolagem' },
+];
+const cloudDownloads = new Map<string, Promise<File>>();
+const progressWrites = new Map<string, Promise<void>>();
 
-const LOCAL_PROGRESS_PREFIX = 'librio:reader-progress:';
-const RAR_BUNDLE = require('../../assets/rar-reader.txt');
-const MAX_CBR_BRIDGE_BYTES = 120 * 1024 * 1024;
+function boundPercent(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
+}
+
+async function cacheCloudBook(book: Book, format: ReadingFormat) {
+  const folder = new Directory(Paths.cache, 'librio-reader-v2');
+  folder.create({ idempotent: true, intermediates: true });
+  const target = new File(folder, `${book.id}.${format}`);
+  if (target.exists && target.size > 0) return target;
+  const pending = cloudDownloads.get(book.id);
+  if (pending) return pending;
+
+  const temp = new File(folder, `${book.id}.part`);
+  const download = (async () => {
+    try {
+      const url = await getBookUrl(book);
+      await File.downloadFileAsync(url, temp, { idempotent: true });
+      if (!temp.size) throw new Error('Download vazio');
+      await temp.move(target, { overwrite: true });
+      return target;
+    } finally {
+      cloudDownloads.delete(book.id);
+      if (temp.exists && temp.uri !== target.uri) temp.delete();
+    }
+  })();
+  cloudDownloads.set(book.id, download);
+  return download;
+}
+
+async function readCheckpoint(source: Source) {
+  const saved = await AsyncStorage.getItem(source.key).catch(() => null);
+  let device: Checkpoint = { percent: 0 };
+  try {
+    const data = JSON.parse(saved ?? '0');
+    device = typeof data === 'number'
+      ? { percent: boundPercent(data) }
+      : { percent: boundPercent(data.percent), page: Number.isInteger(data.page) ? data.page : undefined };
+  } catch { /* A damaged checkpoint does not prevent reading. */ }
+  if (!source.cloudId) return device;
+  const cloud = boundPercent(await getBookProgress(source.cloudId).catch(() => device.percent));
+  return cloud === device.percent ? device : { percent: cloud };
+}
+
+function saveCheckpoint(source: Source, checkpoint: Checkpoint) {
+  const previous = progressWrites.get(source.key) ?? Promise.resolve();
+  const write = previous.then(async () => {
+    await AsyncStorage.setItem(source.key, JSON.stringify(checkpoint)).catch(() => {});
+    if (source.cloudId) await saveBookProgress(source.cloudId, checkpoint.percent).catch(() => {});
+  });
+  progressWrites.set(source.key, write);
+  void write.then(() => {
+    if (progressWrites.get(source.key) === write) progressWrites.delete(source.key);
+  });
+}
 
 export default function Reader() {
-  const params = useLocalSearchParams<{ id?: string; uri?: string; title?: string; format?: string }>();
-  const id = Array.isArray(params.id) ? params.id[0] : params.id;
-  const uri = Array.isArray(params.uri) ? params.uri[0] : params.uri;
-  const localTitle = Array.isArray(params.title) ? params.title[0] : params.title;
-  const localFormat = Array.isArray(params.format) ? params.format[0] : params.format;
+  const { id, uri } = useLocalSearchParams<{ id: string; uri?: string }>();
+  const [attempt, setAttempt] = useState(0);
+  return <ReadingSession key={`${id}:${uri ?? ''}:${attempt}`} id={id} uri={uri} retry={() => setAttempt((value) => value + 1)} />;
+}
 
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const isTablet = windowWidth >= 768;
-
-  const [readingFile, setReadingFile] = useState<ReaderFile | null>(null);
-  const [pages, setPages] = useState<ReaderPage[]>([]);
-  const [page, setPage] = useState(1);
-  const [pageCount, setPageCount] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [fontScale, setFontScale] = useState(1);
-  const [readingMode, setReadingMode] = useState<ReadingMode>('page');
-  const [showControls, setShowControls] = useState(true);
-  const [epubHtml, setEpubHtml] = useState('');
-  const [rarHtml, setRarHtml] = useState('');
-  const [rarLoading, setRarLoading] = useState(false);
+function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: () => void }) {
+  const [source, setSource] = useState<Source | null>(null);
+  const [recover, setRecover] = useState<LocalBook | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [status, setStatus] = useState('Abrindo a obra…');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [rarReady, setRarReady] = useState(false);
-  const [rarStarted, setRarStarted] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Preparando sua leitura…');
-
-  const webView = useRef<WebView>(null);
-  const progressRef = useRef(0);
-  const verticalListRef = useRef<FlatList<ReaderPage>>(null);
-  const format = readingFile?.format.toLowerCase() ?? '';
-  const localProgressKey = useMemo(() => (uri ? `${LOCAL_PROGRESS_PREFIX}${uri}` : ''), [uri]);
+  const [mode, setMode] = useState<ReadingMode>('page');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [command, setCommand] = useState<{ page: number } | null>(null);
+  const [pages, setPages] = useState<ReaderPage[]>([]);
+  const [directory, setDirectory] = useState<Directory | null>(null);
+  const [html, setHtml] = useState('');
+  const [epubReady, setEpubReady] = useState(false);
+  const [fontScale, setFontScale] = useState(1);
+  const [controls, setControls] = useState(true);
+  const [percent, setPercent] = useState(0);
+  const checkpoint = useRef<Checkpoint>({ percent: 0 });
+  const epub = useRef<WebView<object>>(null);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError('');
-    setReadingFile(null);
-    setPages([]);
-    setPage(1);
-    setPageCount(0);
-    setEpubHtml('');
-    setRarHtml('');
-    setRarReady(false);
-    setRarStarted(false);
-    setProgress(0);
-    progressRef.current = 0;
+    let extracted: Directory | null = null;
+    let zipReading = false;
 
     void (async () => {
       try {
+        let opened: Source;
         if (uri) {
-          const file = new File(uri);
-          const detected = (localFormat || file.name.split('.').pop() || '').toLowerCase();
-          if (!['pdf', 'epub', 'cbz', 'cbr'].includes(detected)) {
-            throw new Error('Este formato ainda não pode ser lido pelo Librio.');
+          const book = await findLocalBook(uri);
+          if (!book) {
+            if (active) setError('Este item saiu da estante. Importe o arquivo novamente.');
+            return;
           }
-          if (localProgressKey) {
-            const saved = Number((await AsyncStorage.getItem(localProgressKey)) ?? 0);
-            if (active && Number.isFinite(saved)) {
-              setProgress(saved);
-              progressRef.current = saved;
+          const file = getLocalFile(book);
+          if (!file) {
+            if (active) {
+              setRecover(book);
+              setError('Selecione o arquivo original para recuperar a leitura e salvá-lo no Librio.');
             }
+            return;
           }
-          if (active) {
-            setReadingFile({
-              file,
-              format: detected,
-              title: localTitle || file.name.replace(/\.[^.]+$/, ''),
-            });
-          }
-        } else if (id && id !== 'local') {
-          const client = requireSupabase();
-          const { data, error: bookError } = await client
-            .from('books')
-            .select('*')
-            .eq('id', id)
-            .single();
-          if (bookError) throw bookError;
+          opened = { file, format: book.format, title: book.name.replace(/\.[^.]+$/, ''), key: localProgressKey(book) };
+        } else {
+          if (!id || id === 'local') throw new Error('Obra não identificada');
+          const { data, error: loadError } = await requireSupabase().from('books').select('*').eq('id', id).single();
+          if (loadError) throw loadError;
           const book = data as Book;
-          const detected = book.file_type.toLowerCase();
-          if (!['pdf', 'epub', 'cbz', 'cbr'].includes(detected)) {
-            throw new Error('Este formato ainda não pode ser lido pelo Librio.');
+          const format = getReadingFormat(book.file_type);
+          if (!format) {
+            if (active) setError('O leitor aceita arquivos CBR, CBZ, EPUB e PDF.');
+            return;
           }
-          const folder = new Directory(Paths.cache, 'librio-reader');
-          if (!folder.exists) folder.create({ intermediates: true });
-          const cached = new File(folder, `${book.id}.${detected}`);
-          const saved = await getBookProgress(book.id);
-          if (!cached.exists) {
-            setLoadingMessage('Baixando obra da nuvem…');
-            const signedUrl = await getBookUrl(book);
-            await File.downloadFileAsync(signedUrl, cached, { idempotent: true });
-          }
-          await markBookOpened(book.id);
-          if (active) {
-            setProgress(saved);
-            progressRef.current = saved;
-            setReadingFile({
-              file: cached,
-              format: detected,
-              title: book.title,
-              cloudBookId: book.id,
-            });
-          }
-        } else {
-          throw new Error('Não foi possível identificar a obra para leitura.');
+          if (active) setStatus('Baixando da nuvem…');
+          const file = await cacheCloudBook(book, format);
+          opened = { file, format, title: book.title, key: `librio:cloud-progress:${book.id}`, cloudId: book.id };
         }
-      } catch (cause) {
-        if (active) {
-          setError(
-            cause instanceof Error ? cause.message : 'Não foi possível abrir esta obra.'
-          );
-        }
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
 
-    return () => {
-      active = false;
-    };
-  }, [id, uri, localTitle, localFormat, localProgressKey]);
-
-  useEffect(() => {
-    if (!readingFile || !['cbz', 'epub', 'cbr'].includes(format)) return;
-    let active = true;
-
-    void (async () => {
-      try {
-        if (format === 'cbz') {
-          setLoadingMessage('Organizando as páginas…');
-          const found = await readComicZip(readingFile.file.uri);
+        const saved = await readCheckpoint(opened);
+        if (!active) return;
+        checkpoint.current = saved;
+        setPercent(saved.percent);
+        setPage(saved.page ?? 1);
+        if (opened.cloudId) {
+          await markBookOpened(opened.cloudId).catch(() => {});
           if (!active) return;
-          setPages(found);
-          setPageCount(found.length);
-          const initial = Math.max(
-            1,
-            Math.min(
-              found.length,
-              Math.ceil((progressRef.current / 100) * found.length) || 1
-            )
-          );
-          setPage(initial);
-        } else if (format === 'epub') {
-          setLoadingMessage('Preparando o livro…');
-          const html = await readEpubHtml(
-            readingFile.file.uri,
-            fontScale,
-            progressRef.current,
-            readingMode
-          );
-          if (active) setEpubHtml(html);
-        } else {
-          setLoadingMessage('Preparando o leitor de quadrinhos CBR…');
-          const asset = Asset.fromModule(RAR_BUNDLE);
-          await asset.downloadAsync();
-          if (!asset.localUri) {
-            throw new Error('O leitor CBR não está disponível neste APK.');
-          }
-          const bundle = await new File(asset.localUri).text();
-          if (!active) return;
-          setRarHtml(`<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta charset="utf-8"><style>
-            html,body{margin:0;background:#171A27;color:#e7e2f1;font:16px system-ui;-webkit-user-select:none;user-select:none}
-            #pages{max-width:960px;margin:0 auto;padding:0 8px 50px}
-            .page{display:block;width:100%;height:auto;max-height:94vh;object-fit:contain;margin:0 auto 12px;border-radius:4px}
-            #status{position:fixed;inset:0;display:grid;place-items:center;background:#171A27;color:#c4b5fd;font-weight:700}
-          </style></head><body><div id="status">Preparando o leitor CBR…</div><main id="pages"></main><script>${bundle}</script></body></html>`);
-          setRarLoading(true);
         }
-      } catch (cause) {
-        if (active) {
-          setError(
-            cause instanceof Error ? cause.message : 'Não foi possível preparar este arquivo.'
-          );
+        setSource(opened);
+        if (opened.format === 'pdf') {
+          setStatus('Renderizando o PDF…');
+          return;
         }
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [readingFile, format, fontScale, readingMode]);
-
-  const persistProgress = useCallback(
-    (value: number) => {
-      const normalized = Math.max(0, Math.min(100, Math.round(value)));
-      if (Math.abs(normalized - progressRef.current) < 1) return;
-      progressRef.current = normalized;
-      setProgress(normalized);
-      if (readingFile?.cloudBookId) {
-        void saveBookProgress(readingFile.cloudBookId, normalized).catch(() => {});
-      } else if (localProgressKey) {
-        void AsyncStorage.setItem(localProgressKey, String(normalized)).catch(() => {});
-      }
-    },
-    [readingFile, localProgressKey]
-  );
-
-  const onRarMessage = useCallback(
-    (event: { nativeEvent: { data: string } }) => {
-      let message: ReaderEvent;
-      try {
-        message = JSON.parse(event.nativeEvent.data) as ReaderEvent;
-      } catch {
-        return;
-      }
-      if (message.type === 'ready-for-file' && !rarStarted && readingFile) {
-        setRarStarted(true);
-        void (async () => {
-          try {
-            if (readingFile.file.size > MAX_CBR_BRIDGE_BYTES) {
-              throw new Error(
-                'Este CBR é grande demais para abrir no leitor local (limite de 120 MB).'
-              );
-            }
-            const data = bytesToBase64(new Uint8Array(await readingFile.file.arrayBuffer()));
-            webView.current?.injectJavaScript(`window.LibrioRarReader.open('${data}'); true;`);
-          } catch (cause) {
-            setError(
-              cause instanceof Error ? cause.message : 'Não foi possível ler este arquivo CBR.'
-            );
-          }
-        })();
-      } else if (message.type === 'count' || message.type === 'ready') {
-        setRarLoading(false);
-        if (message.total) {
-          setPageCount(message.total);
-          setPage(
-            Math.max(
-              1,
-              Math.ceil((progressRef.current / 100) * message.total) || 1
-            )
-          );
+        if (opened.format === 'epub') {
+          setStatus('Preparando o texto…');
+          const content = await readEpubHtml(opened.file.uri, 1, saved.percent);
+          if (active) setHtml(content);
+          return;
         }
-      } else if (message.type === 'loading') {
-        setLoadingMessage(message.message || 'Organizando as páginas…');
-        setRarLoading(true);
-      } else if (message.type === 'page') {
-        if (message.current) setPage(message.current);
-        if (message.total) setPageCount(message.total);
-        if (message.current && message.total) {
-          persistProgress((message.current / message.total) * 100);
+        setStatus('Organizando as páginas…');
+        extracted = new Directory(Paths.cache, 'librio-pages-v2', `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+        extracted.create({ intermediates: true });
+        if (opened.format === 'cbr') {
+          setDirectory(extracted);
+          return;
         }
-      } else if (message.type === 'progress') {
-        setLoadingMessage('Carregando as páginas…');
-      } else if (message.type === 'error') {
-        setRarLoading(false);
-        setError(message.message || 'Não foi possível abrir este arquivo CBR.');
-      }
-    },
-    [rarStarted, readingFile, persistProgress]
-  );
-
-  function movePage(delta: number) {
-    const next = Math.max(1, Math.min(pageCount, page + delta));
-    if (next === page) return;
-    setPage(next);
-    if (format === 'cbz') {
-      persistProgress(pageCount ? (next / pageCount) * 100 : 0);
-      if (readingMode === 'vertical' && verticalListRef.current) {
+        zipReading = true;
         try {
-          verticalListRef.current.scrollToIndex({ index: next - 1, animated: true });
-        } catch {
-          // ignore layout bounds
+          const found = await readComicZip(opened.file.uri, extracted, () => active);
+          if (active) showComic(found);
+        } finally {
+          zipReading = false;
+          if (!active && extracted.exists) extracted.delete();
         }
+      } catch (cause) {
+        if (!active) return;
+        console.warn('Librio reader:', cause instanceof Error ? cause.name : 'open failed');
+        setError(uri
+          ? 'Confira se o arquivo está completo, sem senha e em um formato compatível.'
+          : 'Confira sua conexão e tente abrir a obra novamente.');
       }
-    }
-    if (format === 'cbr') {
-      webView.current?.injectJavaScript(
-        `document.querySelector('[data-page="${next}"]')?.scrollIntoView({behavior:'smooth',block:'start'}); true;`
-      );
-    }
+    })();
+
+    return () => {
+      active = false;
+      if (!zipReading && extracted?.exists) extracted.delete();
+    };
+  }, [id, uri]);
+
+  function showComic(found: ReaderPage[]) {
+    const saved = checkpoint.current;
+    setPage(Math.max(1, Math.min(found.length, saved.page ?? Math.round(found.length * saved.percent / 100))));
+    setTotal(found.length);
+    setPages(found);
   }
 
-  // Handle tap navigation depending on mode
-  function handleCanvasTap(tapX: number) {
-    // If tap is in center 40% of screen: toggle HUD
-    const leftMargin = windowWidth * 0.3;
-    const rightMargin = windowWidth * 0.7;
+  const persist = useCallback((value: number, current?: number) => {
+    const normalized = boundPercent(value);
+    if (!source || (normalized === checkpoint.current.percent && current === checkpoint.current.page)) return;
+    checkpoint.current = { percent: normalized, page: current };
+    setPercent(normalized);
+    saveCheckpoint(source, checkpoint.current);
+  }, [source]);
 
-    if (tapX >= leftMargin && tapX <= rightMargin) {
-      setShowControls((prev) => !prev);
-      return;
-    }
-
-    if (readingMode === 'vertical') {
-      // In vertical mode, just toggle HUD
-      setShowControls((prev) => !prev);
-      return;
-    }
-
-    if (readingMode === 'manga') {
-      // Manga mode: tap left advances (+1), tap right goes back (-1)
-      if (tapX < leftMargin) {
-        movePage(1);
-      } else {
-        movePage(-1);
-      }
-    } else {
-      // Standard LTR page mode: tap right advances (+1), tap left goes back (-1)
-      if (tapX > rightMargin) {
-        movePage(1);
-      } else {
-        movePage(-1);
-      }
-    }
+  function onPage(current: number, count: number) {
+    if (current < 1 || count < current) return;
+    setPage(current);
+    setTotal(count);
+    persist(current / count * 100, current);
   }
 
-  function onWebMessage(event: { nativeEvent: { data: string } }) {
-    if (format === 'cbr') {
-      onRarMessage(event);
+  function go(delta: number) {
+    const next = Math.min(total, Math.max(1, page + delta));
+    if (!total || next === page) return;
+    onPage(next, total);
+    setCommand({ page: next });
+  }
+
+  function tapComic(x: number, width: number) {
+    if (mode === 'vertical' || (x >= width * 0.3 && x <= width * 0.7)) {
+      setControls((visible) => !visible);
       return;
     }
+    go((x > width / 2) === (mode === 'page') ? 1 : -1);
+  }
+
+  function onEpubMessage(event: WebViewMessageEvent) {
     try {
-      const message = JSON.parse(event.nativeEvent.data) as ReaderEvent;
-      if (message.type === 'progress' && typeof message.progress === 'number') {
-        persistProgress(message.progress);
-      }
-    } catch {
-      // Ignore other events
+      const message = JSON.parse(event.nativeEvent.data);
+      if (message.type === 'ready') setEpubReady(true);
+      if (message.type === 'tap') setControls((value) => !value);
+      if (message.type === 'progress' && typeof message.progress === 'number') persist(message.progress);
+    } catch { /* Ignore unrelated messages. */ }
+  }
+
+  function resizeText(delta: number) {
+    const next = Math.max(0.85, Math.min(1.6, fontScale + delta));
+    setFontScale(next);
+    epub.current?.injectJavaScript(`window.LibrioTextSize?.(${next});true;`);
+  }
+
+  async function reconnect() {
+    if (!recover || reconnecting) return;
+    setReconnecting(true);
+    try {
+      if (await reconnectLocalBook(recover)) retry();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível recuperar o arquivo.');
+    } finally {
+      setReconnecting(false);
     }
   }
 
-  const onViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: Array<{ index?: number | null }> }) => {
-      if (viewableItems.length > 0 && typeof viewableItems[0].index === 'number') {
-        const curr = viewableItems[0].index + 1;
-        setPage(curr);
-        if (pageCount > 0) {
-          persistProgress((curr / pageCount) * 100);
-        }
-      }
-    }
-  ).current;
-
-  function dismissError() {
-    setError('');
-    router.back();
+  function back() {
+    if (router.canGoBack()) router.back();
+    else router.replace('/library');
   }
+
+  const textMode = source?.format === 'epub';
+  const ready = !error && (textMode ? epubReady : total > 0);
+  const showControls = controls || !ready;
+  const immersive = ready && !showControls;
 
   return (
-    <View style={s.screen}>
-      {/* Top HUD Header */}
-      {showControls && (
-        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)} style={s.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={s.backButton}>
-            <Text style={s.back}>‹</Text>
-          </Pressable>
-
-          <View style={s.brandMark}>
-            <BookIcon size={16} color={palette.violetLight} />
-          </View>
-
-          <View style={s.heading}>
-            <Text style={s.title} numberOfLines={1}>
-              {readingFile?.title ?? 'Leitor'}
-            </Text>
-            <View style={s.metaRow}>
-              <Text style={s.metaFormat}>{(format || 'DOC').toUpperCase()}</Text>
-              <Text style={s.metaDot}>•</Text>
-              <Text style={s.metaSource}>
-                {uri ? 'NESTE DISPOSITIVO' : 'NUVEM'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Mode Selector HUD Pills */}
-          <View style={s.modeSelector}>
-            <Pressable
-              onPress={() => setReadingMode('page')}
-              style={[s.modeBtn, readingMode === 'page' && s.modeBtnActive]}
-            >
-              <Text
-                style={[
-                  s.modeBtnText,
-                  readingMode === 'page' && s.modeBtnTextActive,
-                ]}
-              >
-                Páginas
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setReadingMode('manga')}
-              style={[s.modeBtn, readingMode === 'manga' && s.modeBtnActive]}
-            >
-              <Text
-                style={[
-                  s.modeBtnText,
-                  readingMode === 'manga' && s.modeBtnTextActive,
-                ]}
-              >
-                Mangá (RTL)
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setReadingMode('vertical')}
-              style={[s.modeBtn, readingMode === 'vertical' && s.modeBtnActive]}
-            >
-              <Text
-                style={[
-                  s.modeBtnText,
-                  readingMode === 'vertical' && s.modeBtnTextActive,
-                ]}
-              >
-                Rolagem
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* EPUB font controls */}
-          {format === 'epub' && (
-            <View style={s.fontControls}>
-              <Pressable
-                style={s.fontButton}
-                onPress={() => setFontScale((v) => Math.max(0.85, v - 0.1))}
-              >
-                <Text style={s.fontButtonText}>A−</Text>
-              </Pressable>
-              <Pressable
-                style={s.fontButton}
-                onPress={() => setFontScale((v) => Math.min(1.6, v + 0.1))}
-              >
-                <Text style={s.fontButtonText}>A+</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {pageCount > 0 && format !== 'epub' && (
-            <View style={s.pageBadge}>
-              <Text style={s.pageCounter}>
-                {page} / {pageCount}
-              </Text>
-            </View>
-          )}
-        </Animated.View>
-      )}
-
-      {/* Main Canvas Area */}
+    <SafeAreaView style={s.screen} edges={['top', 'right', 'bottom', 'left']}>
+      <StatusBar style="light" hidden={immersive} animated />
       <View style={s.canvas}>
-        {loading ? (
-          <Animated.View entering={FadeIn} style={s.center}>
-            <ActivityIndicator size="large" color={palette.violet} />
-            <Text style={s.loading}>{loadingMessage}</Text>
+        {!error && source?.format === 'pdf' && (
+          <PdfReader
+            uri={source.file.uri}
+            initialProgress={checkpoint.current.percent}
+            initialPage={checkpoint.current.page}
+            readingMode={mode}
+            command={command}
+            onPage={onPage}
+            onTap={() => setControls((value) => !value)}
+            onError={() => setError('O PDF não pôde ser renderizado. Confira se ele está completo e sem senha.')}
+          />
+        )}
+        {!error && pages.length > 0 && (
+          <ComicReader pages={pages} page={page} mode={mode} command={command} onPage={(current) => onPage(current, pages.length)} onTap={tapComic} />
+        )}
+        {!error && source?.format === 'cbr' && directory && !pages.length && (
+          <RarExtractor file={source.file} directory={directory} onComplete={showComic} onStatus={setStatus} onError={setError} />
+        )}
+        {!error && textMode && !!html && (
+          <WebView<object>
+            ref={epub}
+            source={{ html }}
+            style={s.web}
+            originWhitelist={['*']}
+            allowFileAccess={false}
+            setSupportMultipleWindows={false}
+            onShouldStartLoadWithRequest={({ url }) => url === 'about:blank' || url.startsWith('about:blank#')}
+            onError={() => setError('Não foi possível exibir este EPUB.')}
+            onRenderProcessGone={() => setError('O leitor de EPUB foi interrompido. Tente novamente.')}
+            onMessage={onEpubMessage}
+          />
+        )}
+        {(!ready || error) && (
+          <Animated.View entering={FadeIn.duration(180)} style={s.messageLayer}>
+            {error ? (
+              <View style={s.message}>
+                <BookIcon size={30} />
+                <Text accessibilityRole="header" style={s.messageTitle}>Não foi possível abrir</Text>
+                <Text style={s.messageCopy}>{error}</Text>
+                <Action disabled={reconnecting} title={recover ? 'Selecionar arquivo original' : 'Tentar novamente'} onPress={recover ? () => void reconnect() : retry} />
+                <Action title="Voltar" quiet onPress={back} />
+              </View>
+            ) : (
+              <View style={s.message} accessibilityLiveRegion="polite">
+                <ActivityIndicator color={palette.violetLight} size="large" />
+                <Text style={s.messageCopy}>{status}</Text>
+              </View>
+            )}
           </Animated.View>
-        ) : error ? (
-          <Animated.View entering={FadeInDown} style={s.center}>
-            <View style={s.errorIcon}>
-              <Text style={s.errorSymbol}>!</Text>
+        )}
+        {showControls && (
+          <Animated.View entering={FadeIn.duration(170)} exiting={FadeOut.duration(140)} style={s.header}>
+            <ReaderButton label="Voltar" glyph="‹" onPress={back} />
+            <View style={s.titleGroup}>
+              <Text style={s.title} numberOfLines={2}>{source?.title ?? recover?.name ?? 'Leitor'}</Text>
+              {source && <Text style={s.meta}>{source.format.toUpperCase()} · {uri ? 'Neste dispositivo' : 'Nuvem'}</Text>}
             </View>
-            <Text style={s.errorTitle}>Não foi possível abrir</Text>
-            <Text style={s.errorCopy}>{error}</Text>
-            <Pressable style={s.retryButton} onPress={dismissError}>
-              <Text style={s.retryText}>Voltar à biblioteca</Text>
-            </Pressable>
+            {ready && <ReaderButton label="Ocultar controles" glyph="⛶" onPress={() => setControls(false)} />}
           </Animated.View>
-        ) : !readingFile ? null : format === 'pdf' ? (
-          <Pressable
-            style={s.flex1}
-            onPress={(e) => handleCanvasTap(e.nativeEvent.locationX)}
-          >
-            <PdfReader
-              uri={readingFile.file.uri}
-              initialProgress={progress}
-              readingMode={readingMode}
-              targetPage={page}
-              onProgress={persistProgress}
-              onPage={(current, total) => {
-                setPage(current);
-                setPageCount(total);
-              }}
-              onError={setError}
-            />
-          </Pressable>
-        ) : format === 'cbz' ? (
-          readingMode === 'vertical' ? (
-            <FlatList
-              ref={verticalListRef}
-              data={pages}
-              keyExtractor={(item) => item.uri}
-              onViewableItemsChanged={onViewableItemsChanged}
-              viewabilityConfig={{ itemVisiblePercentThreshold: 50 }}
-              contentContainerStyle={s.verticalContent}
-              renderItem={({ item, index }) => (
-                <Pressable
-                  onPress={() => setShowControls((prev) => !prev)}
-                  style={s.verticalPageWrap}
-                >
-                  <Image
-                    source={{ uri: item.uri }}
-                    resizeMode="contain"
-                    style={{
-                      width: Math.min(windowWidth - (isTablet ? 64 : 16), 960),
-                      height: windowHeight * 0.9,
-                    }}
-                  />
-                  <Text style={s.verticalPageNumber}>
-                    {index + 1} / {pages.length}
-                  </Text>
-                </Pressable>
-              )}
-            />
-          ) : (
-            <Pressable
-              style={s.comicReader}
-              onPress={(e) => handleCanvasTap(e.nativeEvent.locationX)}
-            >
-              <View style={s.pageCanvas}>
-                {pages[page - 1] ? (
-                  <Animated.View
-                    key={`${page}-${readingMode}`}
-                    entering={FadeIn.duration(160)}
-                    exiting={FadeOut.duration(80)}
-                    style={s.comicPage}
-                  >
-                    <Image
-                      source={{ uri: pages[page - 1].uri }}
-                      resizeMode="contain"
-                      style={{
-                        width: Math.min(windowWidth - (isTablet ? 48 : 20), 1100),
-                        height: '100%',
-                      }}
-                    />
-                  </Animated.View>
-                ) : (
-                  <View style={s.center}>
-                    <ActivityIndicator size="large" color={palette.violet} />
-                    <Text style={s.loading}>{error || loadingMessage}</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Tap zone cues in Manga vs Page mode */}
-              <View pointerEvents="none" style={s.tapCues}>
-                <View style={s.tapCueSide}>
-                  <Text style={s.tapCueText}>
-                    {readingMode === 'manga' ? '← Próxima' : '‹ Anterior'}
-                  </Text>
-                </View>
-                <View style={s.tapCueSide}>
-                  <Text style={s.tapCueText}>
-                    {readingMode === 'manga' ? 'Anterior →' : 'Próxima ›'}
-                  </Text>
-                </View>
-              </View>
-            </Pressable>
-          )
-        ) : format === 'epub' ? (
-          epubHtml ? (
-            <Pressable
-              style={s.flex1}
-              onPress={() => setShowControls((prev) => !prev)}
-            >
-              <WebView
-                source={{ html: epubHtml, baseUrl: 'https://librio.local/' }}
-                style={s.web}
-                originWhitelist={['*']}
-                onMessage={onWebMessage}
-                startInLoadingState
-                renderLoading={() => (
-                  <ActivityIndicator
-                    style={s.webLoader}
-                    size="large"
-                    color={palette.violet}
-                  />
-                )}
-              />
-            </Pressable>
-          ) : (
-            <View style={s.center}>
-              <ActivityIndicator size="large" color={palette.violet} />
-              <Text style={s.loading}>{loadingMessage}</Text>
+        )}
+        {ready && showControls && (
+          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(140)} style={s.dock}>
+            <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: percent }} style={s.track}>
+              <View style={[s.fill, { width: `${percent}%` }]} />
             </View>
-          )
-        ) : format === 'cbr' ? (
-          rarHtml ? (
-            <View style={s.webWrap}>
-              <WebView
-                ref={webView as any}
-                source={{ html: rarHtml, baseUrl: 'https://librio.local/' }}
-                style={s.web}
-                originWhitelist={['*']}
-                onMessage={onWebMessage}
-                onLoadEnd={() => setRarReady(true)}
-                javaScriptEnabled
-                domStorageEnabled
-                startInLoadingState
-                renderLoading={() => (
-                  <ActivityIndicator
-                    style={s.webLoader}
-                    size="large"
-                    color={palette.violet}
-                  />
-                )}
-              />
-              <View pointerEvents="none" style={s.rarStatus}>
-                <Text style={s.rarStatusText}>
-                  {rarLoading && loadingMessage}
-                </Text>
-              </View>
-              {!rarReady && (
-                <View style={s.webShield}>
-                  <ActivityIndicator size="large" color={palette.violet} />
-                  <Text style={s.loading}>Preparando o leitor CBR…</Text>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={s.center}>
-              <ActivityIndicator size="large" color={palette.violet} />
-              <Text style={s.loading}>{loadingMessage}</Text>
-            </View>
-          )
-        ) : null}
-      </View>
-
-      {/* Bottom Controls HUD */}
-      {showControls && (
-        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
-          {/* CBZ & CBR bottom controls */}
-          {(format === 'cbz' || format === 'cbr') && pageCount > 0 && (
-            <View style={s.readerControls}>
-              {readingMode === 'manga' ? (
+            <View style={s.dockRow}>
+              {textMode ? (
                 <>
-                  <Pressable
-                    disabled={page >= pageCount}
-                    onPress={() => movePage(1)}
-                    style={[
-                      s.pageButton,
-                      s.nextButton,
-                      page >= pageCount && s.pageButtonDisabled,
-                    ]}
-                  >
-                    <Text style={s.nextButtonText}>← Próxima</Text>
-                  </Pressable>
-
-                  <View style={s.pageCenterInfo}>
-                    <Text style={s.pageHint}>
-                      {page} de {pageCount}
-                    </Text>
-                    <Text style={s.modeHintBadge}>MANGÁ (RTL)</Text>
-                  </View>
-
-                  <Pressable
-                    disabled={page <= 1}
-                    onPress={() => movePage(-1)}
-                    style={[s.pageButton, page <= 1 && s.pageButtonDisabled]}
-                  >
-                    <Text style={s.pageButtonText}>Anterior →</Text>
-                  </Pressable>
+                  <ReaderButton label="Diminuir fonte" glyph="A−" onPress={() => resizeText(-0.1)} disabled={fontScale <= 0.85} />
+                  <Text style={s.position}>{percent}% lido</Text>
+                  <ReaderButton label="Aumentar fonte" glyph="A+" onPress={() => resizeText(0.1)} disabled={fontScale >= 1.6} />
                 </>
               ) : (
                 <>
-                  <Pressable
-                    disabled={page <= 1}
-                    onPress={() => movePage(-1)}
-                    style={[s.pageButton, page <= 1 && s.pageButtonDisabled]}
-                  >
-                    <Text style={s.pageButtonText}>‹ Anterior</Text>
-                  </Pressable>
-
-                  <View style={s.pageCenterInfo}>
-                    <Text style={s.pageHint}>
-                      {page} de {pageCount}
-                    </Text>
-                    <Text style={s.modeHintBadge}>
-                      {readingMode === 'vertical' ? 'ROLAGEM' : 'PÁGINAS (LTR)'}
-                    </Text>
-                  </View>
-
-                  <Pressable
-                    disabled={page >= pageCount}
-                    onPress={() => movePage(1)}
-                    style={[
-                      s.pageButton,
-                      s.nextButton,
-                      page >= pageCount && s.pageButtonDisabled,
-                    ]}
-                  >
-                    <Text style={s.nextButtonText}>Próxima ›</Text>
-                  </Pressable>
+                  <ReaderButton label="Página anterior" glyph={mode === 'manga' ? '›' : '‹'} onPress={() => go(-1)} disabled={page <= 1} />
+                  <Text style={s.position}>{page} / {total}</Text>
+                  <ReaderButton label="Próxima página" glyph={mode === 'manga' ? '‹' : '›'} onPress={() => go(1)} disabled={page >= total} />
                 </>
               )}
             </View>
-          )}
-
-          {/* EPUB progress footer */}
-          {format === 'epub' && (
-            <View style={s.progressFooter}>
-              <View style={s.progressTrack}>
-                <View style={[s.progressFill, { width: `${progress}%` }]} />
+            {!textMode && (
+              <View style={s.modes}>
+                {modes.map(({ value, label }) => (
+                  <Pressable
+                    key={value}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: mode === value }}
+                    onPress={() => setMode(value)}
+                    style={[s.mode, mode === value && s.modeSelected]}
+                  >
+                    <Text style={[s.modeLabel, mode === value && s.modeLabelSelected]}>{label}</Text>
+                  </Pressable>
+                ))}
               </View>
-              <Text style={s.progressText}>{progress}% lido</Text>
-            </View>
-          )}
-        </Animated.View>
-      )}
-    </View>
+            )}
+          </Animated.View>
+        )}
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function ReaderButton({ label, glyph, onPress, disabled = false }: { label: string; glyph: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [s.button, (pressed || disabled) && s.buttonDimmed]}
+    >
+      <Text style={[s.glyph, glyph.length > 1 && s.glyphSmall]}>{glyph}</Text>
+    </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: palette.background,
-  },
-  canvas: {
-    flex: 1,
-    backgroundColor: palette.background,
-  },
-  flex1: {
-    flex: 1,
-  },
+  screen: { flex: 1, backgroundColor: '#100E16' },
+  canvas: { flex: 1, position: 'relative' },
+  web: { flex: 1, backgroundColor: '#100E16' },
   header: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    gap: 8,
-    borderBottomColor: palette.border,
-    borderBottomWidth: 1,
-    backgroundColor: '#191B29',
-    zIndex: 10,
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2,
+    backgroundColor: palette.background, borderBottomWidth: 1, borderBottomColor: palette.border,
+    flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10,
   },
-  backButton: {
-    width: 32,
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
+  titleGroup: { flex: 1 },
+  title: { color: palette.text, fontSize: 17, fontWeight: '800' },
+  meta: { color: palette.muted, fontSize: 12, marginTop: 3 },
+  button: { width: 48, minHeight: 46, borderRadius: 14, backgroundColor: palette.surfaceLight, alignItems: 'center', justifyContent: 'center' },
+  buttonDimmed: { opacity: 0.42 },
+  glyph: { color: palette.violetLight, fontSize: 29, lineHeight: 34, fontWeight: '600' },
+  glyphSmall: { fontSize: 16 },
+  dock: {
+    position: 'absolute', bottom: 8, zIndex: 2, width: '94%', maxWidth: 460, alignSelf: 'center',
+    padding: 10, gap: 8, borderRadius: 20, borderWidth: 1, borderColor: palette.borderLight, backgroundColor: palette.background,
   },
-  back: {
-    fontSize: 34,
-    color: palette.violetLight,
-    lineHeight: 37,
-  },
-  brandMark: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: 'rgba(167,139,250,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(167,139,250,0.25)',
-  },
-  heading: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: -0.2,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 2,
-  },
-  metaFormat: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: palette.amberLight,
-    letterSpacing: 0.8,
-  },
-  metaDot: {
-    fontSize: 8,
-    color: palette.mutedDark,
-  },
-  metaSource: {
-    fontSize: 8,
-    letterSpacing: 0.8,
-    color: palette.muted,
-    fontWeight: '800',
-  },
-  modeSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 10,
-    padding: 2,
-    gap: 2,
-  },
-  modeBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  modeBtnActive: {
-    backgroundColor: palette.violet,
-  },
-  modeBtnText: {
-    color: palette.muted,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  modeBtnTextActive: {
-    color: '#1E192D',
-    fontWeight: '900',
-  },
-  pageBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: palette.border,
-  },
-  pageCounter: {
-    color: '#EEEAFB',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  fontControls: {
-    flexDirection: 'row',
-    gap: 5,
-  },
-  fontButton: {
-    height: 32,
-    minWidth: 34,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: 8,
-    backgroundColor: '#25283A',
-  },
-  fontButtonText: {
-    color: palette.violetLight,
-    fontWeight: '900',
-    fontSize: 11,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 30,
-  },
-  loading: {
-    marginTop: 14,
-    color: '#B9BDCD',
-    fontSize: 13,
-  },
-  errorIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(248,113,113,0.12)',
-    marginBottom: 16,
-  },
-  errorSymbol: {
-    fontSize: 29,
-    fontWeight: '900',
-    color: '#FFB3B3',
-  },
-  errorTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  errorCopy: {
-    fontSize: 13,
-    color: '#B9BDCD',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 8,
-  },
-  retryButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    backgroundColor: palette.violet,
-    borderRadius: 12,
-    marginTop: 18,
-  },
-  retryText: {
-    color: '#201A31',
-    fontWeight: '900',
-    fontSize: 12,
-  },
-  comicReader: {
-    flex: 1,
-    backgroundColor: palette.background,
-    justifyContent: 'center',
-  },
-  pageCanvas: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  comicPage: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tapCues: {
-    ...StyleSheet.absoluteFill,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  tapCueSide: {
-    width: '20%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    opacity: 0.18,
-  },
-  tapCueText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  verticalContent: {
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  verticalPageWrap: {
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  verticalPageNumber: {
-    color: palette.muted,
-    fontSize: 11,
-    marginTop: 6,
-  },
-  readerControls: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderTopColor: palette.border,
-    backgroundColor: '#1C1F2E',
-  },
-  pageButton: {
-    height: 38,
-    paddingHorizontal: 14,
-    justifyContent: 'center',
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: '#24273A',
-  },
-  pageButtonDisabled: {
-    opacity: 0.35,
-  },
-  pageButtonText: {
-    color: '#E2DDF0',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  nextButton: {
-    borderColor: 'transparent',
-    backgroundColor: palette.violet,
-  },
-  nextButtonText: {
-    color: '#211A34',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  pageCenterInfo: {
-    alignItems: 'center',
-    gap: 2,
-  },
-  pageHint: {
-    color: '#AEB3C3',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  modeHintBadge: {
-    color: palette.amberLight,
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  web: {
-    flex: 1,
-    backgroundColor: palette.background,
-  },
-  webWrap: {
-    flex: 1,
-    backgroundColor: palette.background,
-  },
-  webLoader: {
-    flex: 1,
-  },
-  webShield: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: palette.background,
-  },
-  rarStatus: {
-    position: 'absolute',
-    top: 12,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  rarStatusText: {
-    color: '#E8E1F5',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  progressFooter: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: palette.border,
-    backgroundColor: '#1C1F2E',
-  },
-  progressTrack: {
-    height: 5,
-    backgroundColor: '#373A4A',
-    borderRadius: 9,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 5,
-    backgroundColor: palette.violet,
-    borderRadius: 9,
-  },
-  progressText: {
-    color: '#AEB3C3',
-    fontSize: 10,
-    marginTop: 6,
-    textAlign: 'right',
-  },
+  dockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  track: { height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: palette.surfaceLight },
+  fill: { height: '100%', backgroundColor: palette.violet },
+  position: { color: palette.text, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  modes: { flexDirection: 'row', gap: 3, backgroundColor: palette.surface, borderRadius: 12, padding: 3 },
+  mode: { flex: 1, minHeight: 44, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
+  modeSelected: { backgroundColor: palette.violet },
+  modeLabel: { color: palette.muted, fontSize: 13, fontWeight: '700' },
+  modeLabelSelected: { color: '#181123' },
+  messageLayer: { ...StyleSheet.absoluteFill, backgroundColor: '#100E16', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  message: { gap: 12, width: '100%', maxWidth: 420, alignItems: 'center', paddingVertical: 18 },
+  messageTitle: { color: palette.text, fontSize: 25, fontWeight: '800', textAlign: 'center' },
+  messageCopy: { color: palette.muted, fontSize: 15, lineHeight: 23, textAlign: 'center' },
 });

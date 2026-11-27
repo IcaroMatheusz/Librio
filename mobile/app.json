@@ -3,10 +3,11 @@
     "name": "Librio",
     "slug": "librio",
     "scheme": "librio",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "icon": "./assets/librio-icon.png",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "dark",
+    "backgroundColor": "#111019",
     "plugins": [
       "expo-router",
       "expo-document-picker",

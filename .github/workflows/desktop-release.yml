@@ -66,6 +66,12 @@ jobs:
         working-directory: mobile
         run: npm ci
 
+      - name: Validate mobile code and rebuild the offline CBR reader
+        working-directory: mobile
+        run: |
+          npm run typecheck
+          npm run build:rar-reader
+
       - name: Generate Android project
         working-directory: mobile
         env:

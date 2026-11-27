@@ -11,30 +11,31 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export const palette = {
-  background: '#171A27',
-  surface: '#1E2233',
-  surfaceLight: '#242A3E',
+  background: '#111019',
+  surface: '#1B1826',
+  surfaceLight: '#2B253B',
   card: '#211D36',
-  cardElevated: '#26213F',
-  panel: '#202436',
-  panelLight: '#2A3047',
+  cardElevated: '#29233B',
+  panel: '#211D2E',
+  panelLight: '#332C45',
   border: 'rgba(255, 255, 255, 0.08)',
   borderLight: 'rgba(255, 255, 255, 0.15)',
   borderViolet: 'rgba(167, 139, 250, 0.28)',
   text: '#FFFFFF',
   textSecondary: '#E2E8F0',
-  muted: '#94A3B8',
+  muted: '#B3ACBF',
   mutedDark: '#64748B',
-  violet: '#A78BFA',
-  violetLight: '#C4B5FD',
+  violet: '#BDA8FF',
+  violetLight: '#DDCEFF',
   violetDark: '#7C3AED',
   violetGlow: 'rgba(167, 139, 250, 0.15)',
   amber: '#FBBF24',
   amberLight: '#FDE68A',
   amberGlow: 'rgba(251, 191, 36, 0.15)',
-  emerald: '#34D399',
+  emerald: '#9FE7CC',
   emeraldGlow: 'rgba(52, 211, 153, 0.15)',
   rose: '#F87171',
   roseGlow: 'rgba(248, 113, 113, 0.15)',
@@ -44,7 +45,7 @@ export function useResponsiveLayout() {
   const { width, height } = useWindowDimensions();
   const isTablet = width >= 768;
   const isLargeTablet = width >= 1024;
-  const columns = isLargeTablet ? 4 : isTablet ? 3 : 2;
+  const columns = isLargeTablet ? 4 : isTablet ? 3 : width < 330 ? 1 : 2;
   const contentPadding = isTablet ? 28 : 18;
   const cardGap = isTablet ? 16 : 12;
   const maxContentWidth = isLargeTablet ? 1120 : isTablet ? 840 : 540;
@@ -62,7 +63,7 @@ export function useResponsiveLayout() {
 }
 
 export function Screen({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {
-  return <View style={[styles.screen, style]}>{children}</View>;
+  return <SafeAreaView style={[styles.screen, style]}>{children}</SafeAreaView>;
 }
 
 export function BookIcon({ size = 20, color = palette.violetLight }: { size?: number; color?: string }) {
@@ -262,7 +263,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: palette.background,
-    paddingTop: 50,
   },
   brandRow: {
     flexDirection: 'row',
@@ -384,6 +384,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 13,
     letterSpacing: 0.2,
+    textAlign: 'center',
   },
   eyebrow: {
     color: palette.violetLight,

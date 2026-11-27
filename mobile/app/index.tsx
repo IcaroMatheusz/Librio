@@ -18,9 +18,11 @@ import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut } from 'react-native-reanimated';
 import type { Session } from '@supabase/supabase-js';
 import { requireSupabase } from '../src/lib/supabase';
-import { Badge, BookIcon, palette } from '../src/components/atoms';
+import { Action, Badge, BookIcon, palette } from '../src/components/atoms';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { wallpapers } from '../src/components/WallpaperHero';
 
-const wallpaper = require('../assets/onepiece_wallpaper.jpg');
+const wallpaper = wallpapers.auth;
 const mascotIcon = require('../assets/librio-icon.png');
 
 export default function SignIn() {
@@ -109,107 +111,100 @@ export default function SignIn() {
   return (
     <ImageBackground source={wallpaper} resizeMode="cover" style={s.background}>
       <View style={s.shade} />
-      <KeyboardAvoidingView
-        style={s.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={s.content}
-          keyboardShouldPersistTaps="handled"
+      <SafeAreaView style={s.flex}>
+        <KeyboardAvoidingView
+          style={s.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          {/* Brand Mascot & Logo */}
-          <Animated.View entering={FadeInUp.duration(700)} style={s.brandBlock}>
-            <View style={s.logoWrapper}>
-              <Image source={mascotIcon} style={s.logoImg} resizeMode="cover" />
-            </View>
-            <Text style={s.brand}>
-              Librio<Text style={s.dot}>.</Text>
-            </Text>
-            <Text style={s.tagline}>Sua próxima aventura começa aqui.</Text>
-          </Animated.View>
-
-          {/* Login Card */}
-          <Animated.View
-            entering={FadeInDown.delay(120).duration(600)}
-            style={s.card}
+          <ScrollView
+            contentContainerStyle={s.content}
+            keyboardShouldPersistTaps="handled"
           >
-            <View style={s.badgeWrap}>
-              <Badge label="SUA ESTANTE DIGITAL" variant="violet" />
-            </View>
-            <Text style={s.title}>Bem-vindo de volta</Text>
-            <Text style={s.caption}>
-              Entre e continue a leitura exatamente de onde parou.
-            </Text>
-
-            <Text style={s.label}>E-mail</Text>
-            <TextInput
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              style={s.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="voce@email.com"
-              placeholderTextColor="#777D92"
-            />
-
-            <Text style={s.label}>Senha</Text>
-            <TextInput
-              secureTextEntry
-              autoComplete="password"
-              style={s.input}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Sua senha secreta"
-              placeholderTextColor="#777D92"
-              onSubmitEditing={() => void submit()}
-            />
-
-            <Pressable
-              onPress={() => {
-                setRecoveryMessage('');
-                setRecoveryEmail(email);
-                setRecoveryOpen(true);
-              }}
-              style={s.recover}
-            >
-              <Text style={s.link}>Esqueci minha senha</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [
-                s.button,
-                pressed && s.buttonPressed,
-                busy && { opacity: 0.65 },
-              ]}
-              onPress={() => void submit()}
-              disabled={busy}
-            >
-              <Text style={s.buttonText}>
-                {busy ? 'Entrando na conta…' : 'Entrar na minha conta'}
-                <Text style={s.arrow}> →</Text>
+            {/* Brand Mascot & Logo */}
+            <Animated.View entering={FadeInUp.duration(700)} style={s.brandBlock}>
+              <View style={s.logoWrapper}>
+                <Image source={mascotIcon} style={s.logoImg} resizeMode="cover" />
+              </View>
+              <Text style={s.brand}>
+                Librio<Text style={s.dot}>.</Text>
               </Text>
-            </Pressable>
+            </Animated.View>
 
-            {!!error && (
-              <Text accessibilityRole="alert" style={s.error}>
-                {error}
-              </Text>
-            )}
+            {/* Login Card */}
+            <Animated.View
+              entering={FadeInDown.delay(120).duration(600)}
+              style={s.card}
+            >
+              <Text style={s.title}>Entrar no Librio</Text>
 
-            <View style={s.footer}>
-              <Text style={s.footerText}>Ainda não tem conta? </Text>
-              <Pressable onPress={() => router.push('/register')}>
-                <Text style={s.linkStrong}>Cadastre-se grátis</Text>
+              <Text style={s.label}>E-mail</Text>
+              <TextInput
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                style={s.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="voce@email.com"
+                placeholderTextColor="#777D92"
+              />
+
+              <Text style={s.label}>Senha</Text>
+              <TextInput
+                secureTextEntry
+                autoComplete="password"
+                style={s.input}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Sua senha secreta"
+                placeholderTextColor="#777D92"
+                onSubmitEditing={() => void submit()}
+              />
+
+              <Pressable
+                onPress={() => {
+                  setRecoveryMessage('');
+                  setRecoveryEmail(email);
+                  setRecoveryOpen(true);
+                }}
+                style={s.recover}
+              >
+                <Text style={s.link}>Esqueci minha senha</Text>
               </Pressable>
-            </View>
-          </Animated.View>
 
-          <Text style={s.credit}>
-            PDF • EPUB • CBR • CBZ • MANGÁ (RTL) • WEBTOON
-          </Text>
-        </ScrollView>
-      </KeyboardAvoidingView>
+              <Pressable
+                style={({ pressed }) => [
+                  s.button,
+                  pressed && s.buttonPressed,
+                  busy && { opacity: 0.65 },
+                ]}
+                onPress={() => void submit()}
+                disabled={busy}
+              >
+                <Text style={s.buttonText}>
+                  {busy ? 'Entrando na conta…' : 'Entrar na minha conta'}
+                  <Text style={s.arrow}> →</Text>
+                </Text>
+              </Pressable>
+
+              {!!error && (
+                <Text accessibilityRole="alert" style={s.error}>
+                  {error}
+                </Text>
+              )}
+
+              <View style={s.footer}>
+                <Text style={s.footerText}>Ainda não tem conta? </Text>
+                <Pressable onPress={() => router.push('/register')}>
+                  <Text style={s.linkStrong}>Cadastre-se grátis</Text>
+                </Pressable>
+              </View>
+            </Animated.View>
+
+            <Action title="Ler arquivos sem conta" quiet onPress={() => router.replace({ pathname: '/library', params: { offline: '1' } })} />
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
 
       {/* Recovery Modal */}
       <Modal
@@ -287,7 +282,7 @@ const s = StyleSheet.create({
   background: { flex: 1, backgroundColor: palette.background },
   shade: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(15, 17, 28, 0.72)',
+    backgroundColor: 'rgba(12, 10, 18, 0.65)',
   },
   content: {
     flexGrow: 1,
@@ -330,18 +325,12 @@ const s = StyleSheet.create({
     letterSpacing: -1.2,
   },
   dot: { color: palette.violet },
-  tagline: {
-    color: '#E2D9FC',
-    fontSize: 13.5,
-    marginTop: 3,
-    fontWeight: '600',
-  },
   card: {
     padding: 24,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(27, 30, 46, 0.94)',
+    backgroundColor: 'rgba(26, 22, 36, 0.96)',
     shadowColor: '#000000',
     shadowOpacity: 0.35,
     shadowRadius: 24,
@@ -376,7 +365,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(15, 17, 28, 0.65)',
+    backgroundColor: 'rgba(12, 10, 18, 0.80)',
     color: '#FFFFFF',
     fontSize: 14,
   },
@@ -428,14 +417,6 @@ const s = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '900',
   },
-  credit: {
-    textAlign: 'center',
-    color: 'rgba(255, 255, 255, 0.45)',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    marginTop: 24,
-  },
   loading: {
     flex: 1,
     alignItems: 'center',
@@ -467,7 +448,7 @@ const s = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.16)',
-    backgroundColor: '#222638',
+    backgroundColor: palette.panel,
   },
   recoveryMessage: {
     color: '#D8CCFF',

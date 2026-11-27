@@ -1,7 +1,7 @@
 ﻿import * as DocumentPicker from 'expo-document-picker';
-import { Directory, File, Paths } from 'expo-file-system';
+import { File } from 'expo-file-system';
 import { requireSupabase } from './supabase';
-import type { Book, LocalBook } from './types';
+import { getReadingFormat, type Book } from './types';
 
 export async function getBooks(): Promise<Book[]> {
   const { data, error } = await requireSupabase().from('books').select('*').order('created_at', { ascending: false });
@@ -10,11 +10,11 @@ export async function getBooks(): Promise<Book[]> {
 }
 
 export async function pickAndUploadBook(): Promise<void> {
-  const result = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'application/epub+zip', 'application/vnd.comicbook-rar', 'application/vnd.comicbook+zip'], copyToCacheDirectory: true });
+  const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
   if (result.canceled) return;
   const asset = result.assets[0];
-  const extension = asset.name.split('.').pop()?.toLowerCase() ?? '';
-  if (!['pdf', 'epub', 'cbr', 'cbz'].includes(extension)) throw new Error('Formato nÃ£o suportado.');
+  const extension = getReadingFormat(asset.name.split('.').pop());
+  if (!extension) throw new Error('Formato nÃ£o suportado.');
   const client = requireSupabase();
   const { data: { user } } = await client.auth.getUser();
   if (!user) throw new Error('Sua sessÃ£o expirou. Entre novamente.');
@@ -165,54 +165,4 @@ export async function getBookUrl(book: Book) {
   const { data, error } = await requireSupabase().storage.from('books').createSignedUrl(book.file_path, 3600);
   if (error) throw error;
   return data.signedUrl;
-}
-
-export async function chooseDirectory(): Promise<LocalBook[]> {
-  if (process.env.EXPO_OS !== 'android') throw new Error('A seleÃ§Ã£o recursiva de diretÃ³rios estÃ¡ disponÃ­vel no Android. No iOS, escolha arquivos individualmente.');
-  const picked = await Directory.pickDirectoryAsync();
-  const result: LocalBook[] = [];
-  async function walk(folder: Directory): Promise<void> {
-    for (const item of folder.list()) {
-      if (item instanceof Directory) { await walk(item); continue; }
-      if (!(item instanceof File)) continue;
-      const format = item.name.split('.').pop()?.toLowerCase() ?? '';
-      if (['pdf', 'epub', 'cbr', 'cbz'].includes(format)) result.push({ uri: item.uri, name: item.name, size: item.size, format });
-    }
-  }
-  await walk(picked);
-  return result;
-}
-
-export async function chooseLocalFiles(): Promise<LocalBook[]> {
-  const picked = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: ['application/pdf', 'application/epub+zip', 'application/vnd.comicbook-rar', 'application/vnd.comicbook+zip'] });
-  if (picked.canceled) return [];
-  const folder = new Directory(Paths.document, 'librio-local-files');
-  if (!folder.exists) folder.create({ intermediates: true });
-  const books: LocalBook[] = [];
-  for (const asset of picked.assets) {
-    const format = asset.name.split('.').pop()?.toLowerCase() ?? '';
-    if (!['pdf', 'epub', 'cbr', 'cbz'].includes(format)) continue;
-    const destination = new File(folder, `${Date.now()}-${asset.name.replace(/[^\p{L}\p{N}._-]/gu, '_')}`);
-    await new File(asset.uri).copy(destination);
-    books.push({ uri: destination.uri, name: asset.name, size: asset.size ?? 0, format });
-  }
-  return books;
-}
-
-export async function rememberLocalFiles(files: LocalBook[]) {
-  const dir = new Directory(Paths.document, 'librio-local');
-  if (!dir.exists) dir.create({ intermediates: true });
-  const index = new File(dir, 'index.json');
-  let existing: LocalBook[] = [];
-  if (index.exists) {
-    try { existing = JSON.parse(await index.text()) as LocalBook[]; } catch { existing = []; }
-  }
-  const byUri = new Map([...existing, ...files].map((book) => [book.uri, book]));
-  index.write(JSON.stringify([...byUri.values()]));
-}
-
-export async function readRememberedLocalFiles(): Promise<LocalBook[]> {
-  const index = new File(new Directory(Paths.document, 'librio-local'), 'index.json');
-  if (!index.exists) return [];
-  try { return JSON.parse(await index.text()) as LocalBook[]; } catch { return []; }
 }

@@ -12,10 +12,13 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Badge, palette } from '../src/components/atoms';
+import { palette } from '../src/components/atoms';
 import { requireSupabase } from '../src/lib/supabase';
 
-const wallpaper = require('../assets/hellboy_wallpaper.jpg');
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { wallpapers } from '../src/components/WallpaperHero';
+
+const wallpaper = wallpapers.volumes;
 const mascotIcon = require('../assets/librio-icon.png');
 
 export default function Register() {
@@ -59,104 +62,103 @@ export default function Register() {
   return (
     <ImageBackground source={wallpaper} resizeMode="cover" style={s.bg}>
       <View style={s.shade} />
-      <ScrollView
-        contentContainerStyle={s.content}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={s.topbar}>
-          <View style={s.logoWrapper}>
-            <Image source={mascotIcon} style={s.logoImg} resizeMode="cover" />
-          </View>
-          <Text style={s.brand}>
-            Librio<Text style={{ color: palette.violet }}>.</Text>
-          </Text>
-          <Pressable onPress={() => router.back()} style={s.back} hitSlop={12}>
-            <Text style={s.link}>‹ Voltar ao login</Text>
-          </Pressable>
-        </View>
-
-        <Animated.View entering={FadeInDown.duration(550)} style={s.card}>
-          <View style={s.badgeWrap}>
-            <Badge label="NOVA CONTA" variant="violet" />
-          </View>
-          <Text style={s.title}>Crie sua conta</Text>
-          <Text style={s.sub}>Uma estante digital para todas as suas histórias.</Text>
-
-          <View style={s.fieldGroup}>
-            <Text style={s.label}>Seu nome completo</Text>
-            <TextInput
-              style={s.input}
-              value={username}
-              onChangeText={setUsername}
-              placeholder="Ex: Clara Mendes"
-              placeholderTextColor="#858BA0"
-              autoCapitalize="words"
-            />
-          </View>
-
-          <View style={s.fieldGroup}>
-            <Text style={s.label}>E-mail</Text>
-            <TextInput
-              style={s.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="voce@email.com"
-              placeholderTextColor="#858BA0"
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
-          </View>
-
-          <View style={s.fieldGroup}>
-            <Text style={s.label}>Senha</Text>
-            <TextInput
-              style={s.input}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Mínimo 6 caracteres"
-              placeholderTextColor="#858BA0"
-              secureTextEntry
-            />
-          </View>
-
-          <Pressable
-            style={[s.button, busy && { opacity: 0.7 }]}
-            onPress={() => void submit()}
-            disabled={busy}
-          >
-            <Text style={s.buttonText}>
-              {busy ? 'Criando conta…' : 'Criar minha conta  →'}
+      <SafeAreaView style={s.bgSafe}>
+        <ScrollView
+          contentContainerStyle={s.content}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={s.topbar}>
+            <View style={s.logoWrapper}>
+              <Image source={mascotIcon} style={s.logoImg} resizeMode="cover" />
+            </View>
+            <Text style={s.brand}>
+              Librio<Text style={{ color: palette.violet }}>.</Text>
             </Text>
-          </Pressable>
-
-          {!!message && (
-            <Text
-              style={[
-                s.message,
-                message.includes('sucesso') && s.messageSuccess,
-              ]}
-            >
-              {message}
-            </Text>
-          )}
-
-          <View style={s.footer}>
-            <Text style={s.footerText}>Já tem uma conta? </Text>
-            <Pressable onPress={() => router.replace('/')}>
-              <Text style={s.linkStrong}>Fazer login</Text>
+            <Pressable onPress={() => router.back()} style={s.back} hitSlop={12}>
+              <Text style={s.link}>‹ Voltar ao login</Text>
             </Pressable>
           </View>
-        </Animated.View>
-      </ScrollView>
+
+          <Animated.View entering={FadeInDown.duration(550)} style={s.card}>
+            <Text style={s.title}>Crie sua conta</Text>
+
+            <View style={s.fieldGroup}>
+              <Text style={s.label}>Seu nome completo</Text>
+              <TextInput
+                style={s.input}
+                value={username}
+                onChangeText={setUsername}
+                placeholder="Ex: Clara Mendes"
+                placeholderTextColor="#858BA0"
+                autoCapitalize="words"
+              />
+            </View>
+
+            <View style={s.fieldGroup}>
+              <Text style={s.label}>E-mail</Text>
+              <TextInput
+                style={s.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="voce@email.com"
+                placeholderTextColor="#858BA0"
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+            </View>
+
+            <View style={s.fieldGroup}>
+              <Text style={s.label}>Senha</Text>
+              <TextInput
+                style={s.input}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Mínimo 6 caracteres"
+                placeholderTextColor="#858BA0"
+                secureTextEntry
+              />
+            </View>
+
+            <Pressable
+              style={[s.button, busy && { opacity: 0.7 }]}
+              onPress={() => void submit()}
+              disabled={busy}
+            >
+              <Text style={s.buttonText}>
+                {busy ? 'Criando conta…' : 'Criar minha conta  →'}
+              </Text>
+            </Pressable>
+
+            {!!message && (
+              <Text
+                style={[
+                  s.message,
+                  message.includes('sucesso') && s.messageSuccess,
+                ]}
+              >
+                {message}
+              </Text>
+            )}
+
+            <View style={s.footer}>
+              <Text style={s.footerText}>Já tem uma conta? </Text>
+              <Pressable onPress={() => router.replace('/')}>
+                <Text style={s.linkStrong}>Fazer login</Text>
+              </Pressable>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </SafeAreaView>
     </ImageBackground>
   );
 }
 
 const s = StyleSheet.create({
+  bgSafe: { flex: 1 },
   bg: { flex: 1, backgroundColor: palette.background },
   shade: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(13, 15, 25, 0.74)',
+    backgroundColor: 'rgba(12, 10, 18, 0.67)',
   },
   content: {
     flexGrow: 1,
@@ -207,22 +209,13 @@ const s = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(25, 28, 43, 0.94)',
-  },
-  badgeWrap: {
-    marginBottom: 6,
+    backgroundColor: 'rgba(26, 22, 36, 0.96)',
   },
   title: {
     fontSize: 27,
     fontWeight: '900',
     color: '#FFFFFF',
     marginTop: 6,
-  },
-  sub: {
-    fontSize: 13,
-    color: palette.muted,
-    marginTop: 4,
-    marginBottom: 16,
   },
   fieldGroup: {
     marginBottom: 12,
