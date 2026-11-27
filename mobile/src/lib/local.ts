@@ -4,6 +4,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { StorageAccessFramework } from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import { getReadingFormat, type LocalBook } from './types';
+import { adjacentChapters, compareChapterTitles } from './chapterNavigation';
 
 const INDEX_KEY = 'librio:local-library:v2';
 const PROGRESS_PREFIX = 'librio:reader-progress:';
@@ -61,6 +62,23 @@ function updateIndex<T>(action: (books: LocalBook[]) => Promise<T> | T) {
 
 export async function readRememberedLocalFiles() {
   return (await readIndex()).filter((book) => !book.removed);
+}
+
+export function localChapters(books: LocalBook[], current: LocalBook) {
+  function group(book: LocalBook) {
+    const folder = localFolder(book);
+    const path = book.sourceUri?.split('/document/')[1];
+    let parent = '';
+    if (folder && path) {
+      try { parent = decodeURIComponent(path).split('/').slice(0, -1).join('/'); }
+      catch { parent = path; }
+    }
+    return JSON.stringify([localCategory(book), folder?.uri, parent]);
+  }
+  const key = group(current);
+  const chapters = books.filter((book) => !book.removed && group(book) === key)
+    .sort((left, right) => compareChapterTitles(left.name, right.name) || left.uri.localeCompare(right.uri));
+  return adjacentChapters(chapters, current);
 }
 
 export async function findLocalBook(uri: string) {

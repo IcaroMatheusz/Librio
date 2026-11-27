@@ -27,6 +27,6 @@ const styles = StyleSheet.create({
   hero: { borderRadius: 26, overflow: 'hidden', borderWidth: 1, borderColor: palette.borderLight, minHeight: 212, justifyContent: 'flex-end', backgroundColor: palette.surface },
   tall: { minHeight: 255 },
   image: { position: 'absolute', width: '100%' },
-  tint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(16, 13, 26, .27)' },
-  content: { padding: 20, gap: 7, backgroundColor: 'rgba(15, 13, 22, .84)' },
+  tint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(23, 26, 39, .27)' },
+  content: { padding: 20, gap: 7, backgroundColor: 'rgba(23, 26, 39, .84)' },
 });

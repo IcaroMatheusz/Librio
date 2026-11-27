@@ -14,12 +14,25 @@ export function sampleReadingPace(
   return { seconds: pace.seconds + elapsed, fraction: pace.fraction + fraction };
 }
 
-export function estimateRemaining(pace: ReadingPace, position: number, pagesLeft?: number) {
-  if (position >= 1) return 'Leitura concluída';
-  if (pace.fraction <= 0 || pace.seconds < 8) return pagesLeft === undefined ? 'Estimando no seu ritmo' : `${pagesLeft} ${pagesLeft === 1 ? 'página restante' : 'páginas restantes'}`;
-  const minutes = Math.max(1, Math.round((pace.seconds / pace.fraction * (1 - position)) / 60));
-  if (minutes < 60) return `≈ ${minutes} min restantes`;
+export function estimateRemaining(
+  pace: ReadingPace,
+  position: number,
+  format: string,
+  pageCount: number,
+  words: number,
+  screens: number,
+) {
+  if (position >= 1) return { time: 'Leitura concluída', basis: '' };
+
+  const personalized = pace.fraction >= 0.005 && pace.seconds >= 8;
+  const average = format === 'epub'
+    ? Math.max(words * 0.3, screens * 22, 60)
+    : Math.max(pageCount, 1) * (format === 'pdf' ? 55 : 32);
+  const seconds = (personalized ? pace.seconds / pace.fraction : average) * (1 - Math.max(0, position));
+  const minutes = Math.max(1, Math.round(seconds / 60));
   const hours = Math.floor(minutes / 60);
   const remainder = minutes % 60;
-  return `≈ ${hours} h${remainder ? ` ${remainder} min` : ''} restantes`;
+  const time = hours ? `${hours} h${remainder ? ` ${remainder} min` : ''}` : `${minutes} min`;
+
+  return { time: `≈ ${time} restantes`, basis: personalized ? 'No seu ritmo' : 'Ritmo médio' };
 }

@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Lucide } from '@react-native-vector-icons/lucide';
 import { Directory, File, Paths } from 'expo-file-system';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -12,30 +12,35 @@ import ComicReader from '../../src/components/ComicReader';
 import PdfReader, { type ReadingMode } from '../../src/components/PdfReader';
 import RarExtractor from '../../src/components/RarExtractor';
 import { getBookProgress, getBookUrl, markBookOpened, saveBookProgress } from '../../src/lib/library';
-import { findLocalBook, getLocalFile, localProgressKey, reconnectLocalBook } from '../../src/lib/local';
+import { getLocalFile, localChapters, localProgressKey, readRememberedLocalFiles, reconnectLocalBook } from '../../src/lib/local';
 import { extractNativeComic, readComicZip, readEpubHtml, type ReaderPage } from '../../src/lib/reader';
 import { requireSupabase } from '../../src/lib/supabase';
 import { getReadingFormat, type Book, type LocalBook, type ReadingFormat } from '../../src/lib/types';
 import { estimateRemaining, sampleReadingPace, type ReadingPace } from '../../src/lib/readingPace';
 import { saveAutomaticCover } from '../../src/lib/localCovers';
+import { adjacentChapters, pageStep, positionInChapter, type ChapterDirection, type ChapterEdge } from '../../src/lib/chapterNavigation';
+import { boundPercent, cloudProgressKey, readCheckpoint, recordReading, type Checkpoint } from '../../src/lib/readingHistory';
+import { IconButton } from '../../src/components/IconButton';
+import { useReaderSettings } from '../../src/components/ReaderSettings';
 
 type Source = { file: File; format: ReadingFormat; title: string; key: string; cloudId?: string; localBook?: LocalBook };
-type Checkpoint = { percent: number; page?: number; pace?: ReadingPace };
+type Target = { id: string; uri?: string; volume?: string };
+type Chapters = { previous?: Target; next?: Target; count: number; index: number };
+type ReadingControls = {
+  mode: ReadingMode;
+  setMode: (mode: ReadingMode) => void;
+  fontScale: number;
+  setFontScale: (value: number) => void;
+  controls: boolean;
+  setControls: (value: boolean | ((current: boolean) => boolean)) => void;
+};
 const modes: { value: ReadingMode; label: string }[] = [
   { value: 'page', label: 'Páginas' },
   { value: 'manga', label: 'Mangá' },
   { value: 'vertical', label: 'Rolagem' },
 ];
 const cloudDownloads = new Map<string, Promise<File>>();
-const progressWrites = new Map<string, Promise<void>>();
-
-function boundPercent(value: number) {
-  return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
-}
-
-function validPace(value: ReadingPace | undefined) {
-  return value && Number.isFinite(value.seconds) && value.seconds > 0 && Number.isFinite(value.fraction) && value.fraction > 0 ? value : undefined;
-}
+const cloudProgressWrites = new Map<string, Promise<void>>();
 
 async function cacheCloudBook(book: Book, format: ReadingFormat) {
   const folder = new Directory(Paths.cache, 'librio-reader-v2');
@@ -62,46 +67,50 @@ async function cacheCloudBook(book: Book, format: ReadingFormat) {
   return download;
 }
 
-async function readCheckpoint(source: Source) {
-  const saved = await AsyncStorage.getItem(source.key).catch(() => null);
-  let device: Checkpoint = { percent: 0 };
-  try {
-    const data = JSON.parse(saved ?? '0');
-    device = typeof data === 'number'
-      ? { percent: boundPercent(data) }
-      : { percent: boundPercent(data.percent), page: Number.isInteger(data.page) ? data.page : undefined,
-        pace: validPace(data.pace) };
-  } catch { /* A damaged checkpoint does not prevent reading. */ }
+async function loadCheckpoint(source: Source) {
+  const device = await readCheckpoint(source.key);
   if (!source.cloudId) return device;
+  await cloudProgressWrites.get(source.key);
   const cloud = boundPercent(await getBookProgress(source.cloudId).catch(() => device.percent));
-  return cloud === device.percent ? device : { percent: cloud, pace: device.pace };
+  return cloud === device.percent ? device : { ...device, percent: cloud, page: undefined };
 }
 
 function saveCheckpoint(source: Source, checkpoint: Checkpoint, syncCloud: boolean) {
-  const previous = progressWrites.get(source.key) ?? Promise.resolve();
-  const write = previous.then(async () => {
-    await AsyncStorage.setItem(source.key, JSON.stringify(checkpoint)).catch(() => {});
-    if (source.cloudId && syncCloud) await saveBookProgress(source.cloudId, checkpoint.percent).catch(() => {});
-  });
-  progressWrites.set(source.key, write);
+  void recordReading(source.key, checkpoint).catch(() => {});
+  const bookId = source.cloudId;
+  if (!bookId || !syncCloud) return;
+  const write = (cloudProgressWrites.get(source.key) ?? Promise.resolve())
+    .then(() => saveBookProgress(bookId, checkpoint.percent).catch(() => {}));
+  cloudProgressWrites.set(source.key, write);
   void write.then(() => {
-    if (progressWrites.get(source.key) === write) progressWrites.delete(source.key);
+    if (cloudProgressWrites.get(source.key) === write) cloudProgressWrites.delete(source.key);
   });
 }
 
 export default function Reader() {
-  const { id, uri } = useLocalSearchParams<{ id: string; uri?: string }>();
-  const [attempt, setAttempt] = useState(0);
-  return <ReadingSession key={`${id}:${uri ?? ''}:${attempt}`} id={id} uri={uri} retry={() => setAttempt((value) => value + 1)} />;
+  const { id, uri, volume } = useLocalSearchParams<{ id: string; uri?: string; volume?: string }>();
+  return <ReaderSequence key={JSON.stringify([id, uri, volume])} initial={{ id, uri, volume }} />;
 }
 
-function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: () => void }) {
+function ReaderSequence({ initial }: { initial: Target }) {
+  const [selection, setSelection] = useState<{ target: Target; edge?: ChapterEdge; revision: number }>({ target: initial, revision: 0 });
+  const [mode, setMode] = useState<ReadingMode>('page');
+  const [fontScale, setFontScale] = useState(1);
+  const [controls, setControls] = useState(true);
+
+  return <ReadingSession key={selection.revision} {...selection.target} edge={selection.edge}
+    controls={controls} setControls={setControls} mode={mode} setMode={setMode} fontScale={fontScale} setFontScale={setFontScale}
+    retry={() => setSelection((current) => ({ ...current, revision: current.revision + 1 }))}
+    openChapter={(target, edge) => setSelection((current) => ({ target, edge, revision: current.revision + 1 }))} />;
+}
+
+function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMode, fontScale, setFontScale, controls, setControls }:
+  Target & ReadingControls & { edge?: ChapterEdge; retry: () => void; openChapter: (target: Target, edge: ChapterEdge) => void }) {
   const [source, setSource] = useState<Source | null>(null);
   const [recover, setRecover] = useState<LocalBook | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [status, setStatus] = useState('Abrindo a obra…');
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<ReadingMode>('page');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [command, setCommand] = useState<{ page: number } | null>(null);
@@ -109,9 +118,13 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
   const [directory, setDirectory] = useState<Directory | null>(null);
   const [html, setHtml] = useState('');
   const [epubReady, setEpubReady] = useState(false);
-  const [fontScale, setFontScale] = useState(1);
-  const [controls, setControls] = useState(true);
+  const { enabled: fade, open: openPreferences } = useReaderSettings();
+  const initialFont = useRef(fontScale).current;
   const [percent, setPercent] = useState(0);
+  const [epubStats, setEpubStats] = useState({ words: 0, screens: 1 });
+  const [chapters, setChapters] = useState<Chapters>({ index: -1, count: 0 });
+  const moving = useRef(false);
+  const displayedPage = useRef<number | null>(null);
   const checkpoint = useRef<Checkpoint>({ percent: 0 });
   const [pace, setPace] = useState<ReadingPace>({ seconds: 0, fraction: 0 });
   const lastReading = useRef<{ position: number; time: number } | null>(null);
@@ -127,11 +140,18 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
       try {
         let opened: Source;
         if (uri) {
-          const book = await findLocalBook(uri);
+          const books = await readRememberedLocalFiles();
+          const book = books.find((entry) => entry.uri === uri || entry.sourceUri === uri);
           if (!book) {
             if (active) setError('Este item saiu da estante. Importe o arquivo novamente.');
             return;
           }
+          const neighbors = localChapters(books, book);
+          if (active) setChapters({
+            index: neighbors.index, count: neighbors.count,
+            previous: neighbors.previous && { id: 'local', uri: neighbors.previous.uri },
+            next: neighbors.next && { id: 'local', uri: neighbors.next.uri },
+          });
           const file = getLocalFile(book);
           if (!file) {
             if (active) {
@@ -153,13 +173,25 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
           }
           if (active) setStatus('Baixando da nuvem…');
           const file = await cacheCloudBook(book, format);
-          opened = { file, format, title: book.title, key: `librio:cloud-progress:${book.id}`, cloudId: book.id };
+          opened = { file, format, title: book.title, key: cloudProgressKey(book.id), cloudId: book.id };
         }
 
-        const saved = await readCheckpoint(opened);
+        if (volume && opened.cloudId) {
+          const { data } = await requireSupabase().from('volume_chapters').select('book_id')
+            .eq('volume_id', volume).order('chapter_number');
+          const ordered = data?.map(({ book_id }) => book_id) ?? [];
+          const neighbors = adjacentChapters(ordered, opened.cloudId);
+          if (active && neighbors.index >= 0) setChapters({
+            index: neighbors.index, count: neighbors.count,
+            previous: neighbors.previous && { id: neighbors.previous, volume },
+            next: neighbors.next && { id: neighbors.next, volume },
+          });
+        }
+
+        const saved = await loadCheckpoint(opened);
         if (!active) return;
         checkpoint.current = saved;
-        setPercent(saved.percent);
+        setPercent(edge === 'start' ? 0 : edge === 'end' ? 100 : saved.percent);
         if (saved.pace) setPace(saved.pace);
         setPage(saved.page ?? 1);
         if (opened.cloudId) {
@@ -173,7 +205,8 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
         }
         if (opened.format === 'epub') {
           setStatus('Preparando o texto…');
-          const content = await readEpubHtml(opened.file.uri, 1, saved.percent, extraction.signal);
+          const start = edge === 'start' ? 0 : edge === 'end' ? 100 : saved.percent;
+          const content = await readEpubHtml(opened.file.uri, initialFont, start, extraction.signal);
           if (active) setHtml(content);
           return;
         }
@@ -219,18 +252,20 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
       extraction.abort();
       if (!processing && extracted?.exists) extracted.delete();
     };
-  }, [id, uri]);
+  }, [id, uri, volume, edge, initialFont]);
 
   function showComic(found: ReaderPage[], localBook?: LocalBook) {
     const saved = checkpoint.current;
-    setPage(Math.max(1, Math.min(found.length, saved.page ?? Math.round(found.length * saved.percent / 100))));
+    const start = positionInChapter(found.length, saved.page, saved.percent, edge);
+    displayedPage.current = start;
+    setPage(start);
     setTotal(found.length);
     setPages(found);
     if (localBook && found[0]) void saveAutomaticCover(localBook, new File(found[0].uri)).catch(() => {});
   }
 
   const persist = useCallback((value: number, current?: number, count = 0) => {
-    if (!source || !Number.isFinite(value)) return;
+    if (!source || moving.current || !Number.isFinite(value)) return;
     const normalized = boundPercent(value < 100 ? Math.min(99, value) : 100);
     const position = Math.max(0, Math.min(1, value / 100));
     const time = Date.now();
@@ -246,27 +281,41 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
     }
     if (normalized === checkpoint.current.percent && current === checkpoint.current.page && measured === checkpoint.current.pace) return;
     const syncCloud = normalized !== checkpoint.current.percent;
-    checkpoint.current = { percent: normalized, page: current, pace: measured };
-    setPercent(normalized);
+    checkpoint.current = { percent: normalized, page: current, pace: measured, lastReadAt: Date.now(), volumeId: volume };
+    setPercent(position * 100);
     saveCheckpoint(source, checkpoint.current, syncCloud);
-  }, [source]);
+  }, [source, volume]);
 
   function onPage(current: number, count: number) {
-    if (current < 1 || count < current) return;
+    if (moving.current || current < 1 || count < current) return;
+    const changed = displayedPage.current !== null && displayedPage.current !== current;
+    displayedPage.current = current;
     setPage(current);
     setTotal(count);
-    persist(current / count * 100, current, count);
+    if (changed) persist(current / count * 100, current, count);
   }
 
-  function go(delta: number) {
-    const next = Math.min(total, Math.max(1, page + delta));
-    if (!total || next === page) return;
+  function crossChapter(direction: ChapterDirection) {
+    const target = direction === -1 ? chapters.previous : chapters.next;
+    if (!target || moving.current) return;
+    if (direction === 1) persist(100, textMode ? undefined : total, total);
+    moving.current = true;
+    openChapter(target, direction === 1 ? 'start' : 'end');
+  }
+
+  function go(direction: ChapterDirection) {
+    if (!total || moving.current) return;
+    const next = pageStep(page, total, direction);
+    if (next === undefined) {
+      crossChapter(direction);
+      return;
+    }
     onPage(next, total);
     setCommand({ page: next });
   }
 
-  function tapComic(x: number, width: number) {
-    if (mode === 'vertical' || (x >= width * 0.3 && x <= width * 0.7)) {
+  function tapPage(x: number, width: number) {
+    if (width <= 0 || mode === 'vertical' || (x >= width * 0.3 && x <= width * 0.7)) {
       setControls((visible) => !visible);
       return;
     }
@@ -274,11 +323,20 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
   }
 
   function onEpubMessage(event: WebViewMessageEvent) {
+    if (moving.current) return;
     try {
       const message = JSON.parse(event.nativeEvent.data);
-      if (message.type === 'ready') setEpubReady(true);
+      if (message.type === 'ready') {
+        setEpubStats({ words: message.words, screens: message.screens });
+        setEpubReady(true);
+      }
       if (message.type === 'tap') setControls((value) => !value);
-      if (message.type === 'progress' && typeof message.progress === 'number') persist(message.progress);
+      if (message.type === 'boundary' && (message.direction === -1 || message.direction === 1)) crossChapter(message.direction);
+      if (message.type === 'progress' && typeof message.progress === 'number' && Number.isFinite(message.progress)) {
+        setEpubStats((current) => ({ ...current, screens: message.screens }));
+        setPercent(message.progress);
+        persist(message.progress);
+      }
     } catch { /* Ignore unrelated messages. */ }
   }
 
@@ -310,8 +368,24 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
   const showControls = controls || !ready;
   const immersive = ready && !showControls;
   const position = textMode ? percent / 100 : page / Math.max(1, total);
-  const displayPercent = textMode ? percent : Math.min(page === total ? 100 : 99, Math.round(position * 100));
-  const remaining = estimateRemaining(pace, position, textMode ? undefined : Math.max(0, total - page));
+  const displayPercent = Math.min(position >= 1 ? 100 : 99, Math.round(position * 100));
+  const estimate = estimateRemaining(pace, position, source?.format ?? '', total, epubStats.words, epubStats.screens);
+  const canGoBack = page > 1 || !!chapters.previous;
+  const canGoNext = page < total || !!chapters.next;
+  const chapterBefore = textMode ? percent <= 1 && !!chapters.previous : page <= 1;
+  const chapterAfter = textMode ? percent >= 99 && !!chapters.next : page >= total;
+  const presentedOnce = useRef(false);
+
+  useEffect(() => {
+    if (!ready || !source || presentedOnce.current) return;
+    presentedOnce.current = true;
+    const saved = checkpoint.current;
+    const firstPosition = edge !== 'end' && (saved.percent === 0 || edge === 'start');
+    const opening = { ...saved, hidden: false, lastReadAt: Date.now(), volumeId: volume ?? saved.volumeId,
+      ...(firstPosition ? { percent: displayPercent, page: textMode ? undefined : page } : {}) };
+    checkpoint.current = opening;
+    saveCheckpoint(source, opening, firstPosition && opening.percent !== saved.percent);
+  }, [source, ready, displayPercent, page, textMode, edge, volume]);
 
   useEffect(() => {
     if (ready && !lastReading.current) lastReading.current = { position, time: Date.now() };
@@ -331,22 +405,25 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
         {!error && source?.format === 'pdf' && (
           <PdfReader
             uri={source.file.uri}
-            initialProgress={checkpoint.current.percent}
-            initialPage={checkpoint.current.page}
+            initialProgress={edge === 'start' ? 0 : edge === 'end' ? 100 : checkpoint.current.percent}
+            initialPage={displayedPage.current ?? (edge ? undefined : checkpoint.current.page)}
+            fade={fade}
             readingMode={mode}
             command={command}
             onPage={onPage}
-            onTap={() => setControls((value) => !value)}
+            onTap={tapPage}
             onError={() => setError('O PDF não pôde ser renderizado. Confira se ele está completo e sem senha.')}
           />
         )}
         {!error && pages.length > 0 && (
-          <ComicReader pages={pages} page={page} mode={mode} command={command} onPage={(current) => onPage(current, pages.length)} onTap={tapComic} />
+          <ComicReader pages={pages} page={page} mode={mode} command={command} fade={fade} hasPrevious={!!chapters.previous} hasNext={!!chapters.next}
+            onPage={(current) => onPage(current, pages.length)} onTap={tapPage} onChapter={crossChapter} />
         )}
         {!error && source?.format === 'cbr' && directory && !pages.length && (
           <RarExtractor file={source.file} directory={directory} onComplete={(found) => showComic(found, source.localBook)} onStatus={setStatus} onError={setError} />
         )}
         {!error && textMode && !!html && (
+          <Animated.View entering={fade ? FadeIn.duration(180) : undefined} style={s.web}>
           <WebView<object>
             ref={epub}
             source={{ html }}
@@ -359,9 +436,10 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
             onRenderProcessGone={() => setError('O leitor de EPUB foi interrompido. Tente novamente.')}
             onMessage={onEpubMessage}
           />
+          </Animated.View>
         )}
         {(!ready || error) && (
-          <Animated.View entering={FadeIn.duration(180)} style={s.messageLayer}>
+          <Animated.View entering={fade ? FadeIn.duration(180) : undefined} style={s.messageLayer}>
             {error ? (
               <View style={s.message}>
                 <BookIcon size={30} />
@@ -379,39 +457,63 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
           </Animated.View>
         )}
         {showControls && (
-          <Animated.View entering={FadeIn.duration(170)} exiting={FadeOut.duration(140)} style={s.header}>
-            <ReaderButton label="Voltar" glyph="‹" onPress={back} />
+          <Animated.View entering={fade ? FadeIn.duration(170) : undefined} exiting={fade ? FadeOut.duration(140) : undefined} style={s.header}>
+            <IconButton icon="arrow-left" label="Voltar à estante" onPress={back} />
             <View style={s.titleGroup}>
               <Text style={s.title} numberOfLines={2}>{source?.title ?? recover?.name ?? 'Leitor'}</Text>
-              {source && <Text style={s.meta}>{source.format.toUpperCase()} · {uri ? 'Neste dispositivo' : 'Nuvem'}</Text>}
+              {source && (
+                <Text numberOfLines={1} style={s.meta}>
+                  {source.format.toUpperCase()} · {chapters.count > 1 ? `Capítulo ${chapters.index + 1} de ${chapters.count}` : uri ? 'No aparelho' : 'Nuvem'}
+                </Text>
+              )}
             </View>
-            {ready && <ReaderButton label="Ocultar controles" glyph="⛶" onPress={() => setControls(false)} />}
+            <IconButton icon="settings-2" label="Preferências de leitura" onPress={openPreferences} />
+            {ready && <IconButton icon="maximize" label="Ocultar controles" onPress={() => setControls(false)} />}
           </Animated.View>
         )}
         {ready && showControls && (
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(140)} style={s.dock}>
+          <Animated.View entering={fade ? FadeIn.duration(180) : undefined} exiting={fade ? FadeOut.duration(140) : undefined} style={s.dock}>
             <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: displayPercent }} style={s.track}>
               <View style={[s.fill, { width: `${displayPercent}%` }]} />
             </View>
             <View style={s.stats}>
-              <Text style={s.statsPercent}>{displayPercent}% lido</Text>
-              <Text style={s.statsTime}>{remaining}</Text>
+              <View style={s.stat}>
+                <Lucide name="book-open" color={palette.violetLight} size={15} accessible={false} />
+                <Text style={s.statsPercent}>{displayPercent}% lido</Text>
+              </View>
+              <View style={s.stat}>
+                <Lucide name="clock-3" color={palette.violetLight} size={15} accessible={false} />
+                <View>
+                  <Text style={s.statsTime}>{estimate.time}</Text>
+                  {!!estimate.basis && <Text style={s.estimateBasis}>{estimate.basis}</Text>}
+                </View>
+              </View>
             </View>
             <View style={s.dockRow}>
               {textMode ? (
                 <>
-                  <ReaderButton label="Diminuir fonte" glyph="A−" onPress={() => resizeText(-0.1)} disabled={fontScale <= 0.85} />
+                  <IconButton icon="minus" label="Diminuir fonte" onPress={() => resizeText(-0.1)} disabled={fontScale <= 0.85} />
                   <Text style={s.position}>Tamanho do texto</Text>
-                  <ReaderButton label="Aumentar fonte" glyph="A+" onPress={() => resizeText(0.1)} disabled={fontScale >= 1.6} />
+                  <IconButton icon="plus" label="Aumentar fonte" onPress={() => resizeText(0.1)} disabled={fontScale >= 1.6} />
                 </>
               ) : (
                 <>
-                  <ReaderButton label="Página anterior" glyph={mode === 'manga' ? '›' : '‹'} onPress={() => go(-1)} disabled={page <= 1} />
+                  <IconButton label={chapterBefore && canGoBack ? 'Capítulo anterior' : 'Página anterior'}
+                    icon={chapterBefore && canGoBack ? 'list-start' : mode === 'manga' ? 'chevron-right' : 'chevron-left'}
+                    onPress={() => go(-1)} disabled={!canGoBack} />
                   <Text style={s.position}>{page} / {total}</Text>
-                  <ReaderButton label="Próxima página" glyph={mode === 'manga' ? '‹' : '›'} onPress={() => go(1)} disabled={page >= total} />
+                  <IconButton label={chapterAfter && canGoNext ? 'Próximo capítulo' : 'Próxima página'}
+                    icon={chapterAfter && canGoNext ? 'list-end' : mode === 'manga' ? 'chevron-left' : 'chevron-right'}
+                    onPress={() => go(1)} disabled={!canGoNext} />
                 </>
               )}
             </View>
+            {textMode && (chapterBefore || chapterAfter) && (
+              <View style={s.chapterActions}>
+                {chapterBefore && <Action title="Capítulo anterior" quiet onPress={() => crossChapter(-1)} />}
+                {chapterAfter && <Action title="Próximo capítulo" onPress={() => crossChapter(1)} />}
+              </View>
+            )}
             {!textMode && (
               <View style={s.modes}>
                 {modes.map(({ value, label }) => (
@@ -434,43 +536,28 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
   );
 }
 
-function ReaderButton({ label, glyph, onPress, disabled = false }: { label: string; glyph: string; onPress: () => void; disabled?: boolean }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [s.button, (pressed || disabled) && s.buttonDimmed]}
-    >
-      <Text style={[s.glyph, glyph.length > 1 && s.glyphSmall]}>{glyph}</Text>
-    </Pressable>
-  );
-}
-
 const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#100E16' },
+  screen: { flex: 1, backgroundColor: palette.reader },
   canvas: { flex: 1, position: 'relative' },
-  web: { flex: 1, backgroundColor: '#100E16' },
+  web: { flex: 1, backgroundColor: palette.reader },
   header: {
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2,
     backgroundColor: palette.background, borderBottomWidth: 1, borderBottomColor: palette.border,
-    flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 7, padding: 10,
   },
   titleGroup: { flex: 1 },
   title: { color: palette.text, fontSize: 17, fontWeight: '800' },
   meta: { color: palette.muted, fontSize: 12, marginTop: 3 },
-  button: { width: 48, minHeight: 46, borderRadius: 14, backgroundColor: palette.surfaceLight, alignItems: 'center', justifyContent: 'center' },
-  buttonDimmed: { opacity: 0.42 },
-  glyph: { color: palette.violetLight, fontSize: 29, lineHeight: 34, fontWeight: '600' },
-  glyphSmall: { fontSize: 16 },
   dock: {
     position: 'absolute', bottom: 8, zIndex: 2, width: '94%', maxWidth: 460, alignSelf: 'center',
     padding: 10, gap: 8, borderRadius: 20, borderWidth: 1, borderColor: palette.borderLight, backgroundColor: palette.background,
   },
   stats: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   statsPercent: { color: palette.violetLight, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  statsTime: { color: palette.muted, fontSize: 13 },
+  stat: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  statsTime: { color: palette.textSecondary, fontSize: 13, fontWeight: '700' },
+  estimateBasis: { color: palette.mutedDark, fontSize: 10, marginTop: 2 },
+  chapterActions: { flexDirection: 'row', justifyContent: 'space-around', gap: 8, flexWrap: 'wrap' },
   dockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   track: { height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: palette.surfaceLight },
   fill: { height: '100%', backgroundColor: palette.violet },
@@ -479,8 +566,8 @@ const s = StyleSheet.create({
   mode: { flex: 1, minHeight: 44, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
   modeSelected: { backgroundColor: palette.violet },
   modeLabel: { color: palette.muted, fontSize: 13, fontWeight: '700' },
-  modeLabelSelected: { color: '#181123' },
-  messageLayer: { ...StyleSheet.absoluteFill, backgroundColor: '#100E16', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  modeLabelSelected: { color: palette.onAccent },
+  messageLayer: { ...StyleSheet.absoluteFill, backgroundColor: palette.reader, alignItems: 'center', justifyContent: 'center', padding: 24 },
   message: { gap: 12, width: '100%', maxWidth: 420, alignItems: 'center', paddingVertical: 18 },
   messageTitle: { color: palette.text, fontSize: 25, fontWeight: '800', textAlign: 'center' },
   messageCopy: { color: palette.muted, fontSize: 15, lineHeight: 23, textAlign: 'center' },

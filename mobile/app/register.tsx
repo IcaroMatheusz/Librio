@@ -152,7 +152,7 @@ const s = StyleSheet.create({
   bg: { flex: 1, overflow: 'hidden', backgroundColor: palette.background },
   shade: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(12, 10, 18, 0.67)',
+    backgroundColor: 'rgba(15, 17, 26, 0.67)',
   },
   content: {
     flexGrow: 1,
@@ -203,7 +203,7 @@ const s = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(26, 22, 36, 0.96)',
+    backgroundColor: palette.surface,
   },
   title: {
     fontSize: 27,
@@ -221,7 +221,7 @@ const s = StyleSheet.create({
     marginBottom: 6,
   },
   input: {
-    backgroundColor: 'rgba(15, 17, 28, 0.65)',
+    backgroundColor: palette.input,
     borderColor: 'rgba(255, 255, 255, 0.12)',
     borderWidth: 1,
     borderRadius: 12,

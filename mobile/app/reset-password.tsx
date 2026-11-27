@@ -133,7 +133,7 @@ export default function ResetPassword() {
 const s = StyleSheet.create({
   background: { flex: 1, overflow: 'hidden', backgroundColor: palette.background },
   safe: { flex: 1 },
-  shade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(12, 10, 18, .67)' },
+  shade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(15, 17, 26, .67)' },
   content: { flexGrow: 1, justifyContent: 'center', padding: 22, width: '100%', maxWidth: 480, alignSelf: 'center' },
   card: { padding: 23, borderRadius: 24, borderWidth: 1, borderColor: palette.borderLight, backgroundColor: palette.panel },
   title: { color: palette.text, fontSize: 28, fontWeight: '900', marginBottom: 8 },

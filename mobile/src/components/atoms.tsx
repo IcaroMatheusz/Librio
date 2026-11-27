@@ -13,33 +13,8 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-export const palette = {
-  background: '#111019',
-  surface: '#1B1826',
-  surfaceLight: '#2B253B',
-  card: '#211D36',
-  cardElevated: '#29233B',
-  panel: '#211D2E',
-  panelLight: '#332C45',
-  border: 'rgba(255, 255, 255, 0.08)',
-  borderLight: 'rgba(255, 255, 255, 0.15)',
-  borderViolet: 'rgba(167, 139, 250, 0.28)',
-  text: '#FFFFFF',
-  textSecondary: '#E2E8F0',
-  muted: '#B3ACBF',
-  mutedDark: '#64748B',
-  violet: '#BDA8FF',
-  violetLight: '#DDCEFF',
-  violetDark: '#7C3AED',
-  violetGlow: 'rgba(167, 139, 250, 0.15)',
-  amber: '#FBBF24',
-  amberLight: '#FDE68A',
-  amberGlow: 'rgba(251, 191, 36, 0.15)',
-  emerald: '#9FE7CC',
-  emeraldGlow: 'rgba(52, 211, 153, 0.15)',
-  rose: '#F87171',
-  roseGlow: 'rgba(248, 113, 113, 0.15)',
-};
+import { palette } from '../config/colors';
+export { palette } from '../config/colors';
 
 export function useResponsiveLayout() {
   const { width, height } = useWindowDimensions();

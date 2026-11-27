@@ -3,6 +3,7 @@ import { Image } from 'react-native';
 import { fromByteArray } from 'base64-js';
 import { ZipBook } from './zipBook';
 import { nativeMedia } from './nativeMedia';
+import { palette } from '../config/colors';
 
 export type ReaderPage = { uri: string; aspectRatio: number };
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|avif)$/i;
@@ -175,47 +176,74 @@ export async function readEpubHtml(uri: string, fontScale: number, initialProgre
   const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
 
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; script-src 'nonce-${nonce}'; form-action 'none'; base-uri 'none'"><style>
-    :root{color-scheme:dark;background:#100e16;--reading-size:${18 * safeScale}px}
+    :root{color-scheme:dark;background:${palette.reader};--reading-size:${18 * safeScale}px}
     *{box-sizing:border-box}
     body{
       margin:0 auto;
       padding:clamp(24px,5vw,52px) clamp(22px,7vw,66px) 100px;
       overflow-wrap:anywhere;
       max-width:820px;
-      background:#100e16;
-      color:#f2eff9;
+      background:${palette.reader};
+      color:${palette.textSecondary};
       font:var(--reading-size)/1.8 Georgia, serif;
       letter-spacing:.01em;
     }
     img{max-width:100%;height:auto;display:block;margin:24px auto;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,0.35)}
     p{margin:0 0 1.25em}
     h1,h2,h3{font-family:system-ui,-apple-system,sans-serif;line-height:1.3;color:#ffffff;margin:1.6em 0 .7em}
-    a{color:#c4b5fd;text-decoration:none}
-    blockquote{border-inline-start:3px solid #a78bfa;padding-inline-start:16px;color:#c1bfd0;margin:1.4em 0}
+    a{color:${palette.violet};text-decoration:none}
+    blockquote{border-inline-start:3px solid ${palette.violet};padding-inline-start:16px;color:#c1bfd0;margin:1.4em 0}
     svg,table,pre{max-width:100%;overflow:auto}
     .chapter{padding-bottom:36px}
     .page-break{height:1px;margin:40px 0;background:rgba(255,255,255,0.08)}
-    body{overflow-anchor:none}
+    body{overflow-anchor:none;overscroll-behavior:contain}
   </style></head><body>${content}<script nonce="${nonce}">
     (()=>{
       let position=${startAt / 100};
       let last=0;
+      let gesture;
+      let touched=false;
       const range=()=>Math.max(0,document.documentElement.scrollHeight-innerHeight);
       const post=(type,data)=>window.ReactNativeWebView?.postMessage(JSON.stringify({type,...data}));
       function restore(){ window.scrollTo(0,range()*position); }
-      window.addEventListener('load',()=>{ restore(); post('ready'); });
+      const viewport=()=>({ screens: Math.max(1, document.documentElement.scrollHeight/innerHeight) });
+      window.addEventListener('load',()=>{
+        restore();
+        const words=(document.body.innerText.trim().match(/\\S+/g)||[]).length;
+        post('ready',{words,progress:position*100,...viewport()});
+      });
       window.addEventListener('resize',restore);
       window.addEventListener('scroll',()=>{
         clearTimeout(last);
         last=setTimeout(()=>{
-          position=range()?scrollY/range():1;
-          post('progress',{progress:position*100});
+          if(!touched) return;
+          const height=range();
+          position=height?Math.min(1,Math.max(0,scrollY/height)):position;
+          post('progress',{progress:position*100,...viewport()});
         },140);
       });
       window.LibrioTextSize=(scale)=>{
         document.documentElement.style.setProperty('--reading-size',18*scale+'px');
         restore();
       };
+      window.addEventListener('touchstart',(event)=>{
+        touched=true;
+        if(event.touches.length!==1){ gesture=undefined; return; }
+        const native=event.touches[0];
+        gesture={y:native.clientY,x:native.clientX,top:scrollY<=2,bottom:scrollY>=range()-2};
+      },{passive:true});
+      window.addEventListener('touchcancel',()=>{gesture=undefined;},{passive:true});
+      window.addEventListener('touchend',(event)=>{
+        const start=gesture;
+        gesture=undefined;
+        const native=event.changedTouches[0];
+        if(!start||!native||event.touches.length||window.getSelection()?.toString()) return;
+        const dy=native.clientY-start.y;
+        if(Math.abs(dy)<54||Math.abs(dy)<Math.abs(native.clientX-start.x)) return;
+        if(dy<0&&start.bottom&&scrollY>=range()-2)post('boundary',{direction:1});
+        if(dy>0&&start.top&&scrollY<=2)post('boundary',{direction:-1});
+      },{passive:true});
+      window.addEventListener('wheel',()=>{ touched=true; },{passive:true});
       document.addEventListener('click',(event)=>{
         if(event.target.closest('a')) return;
         if(!window.getSelection()?.toString()) post('tap');

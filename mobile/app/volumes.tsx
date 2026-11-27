@@ -351,7 +351,7 @@ export default function Volumes() {
                       book &&
                       router.push({
                         pathname: '/reader/[id]',
-                        params: { id: book.id },
+                        params: { id: book.id, volume: volume.id },
                       })
                     }
                   >

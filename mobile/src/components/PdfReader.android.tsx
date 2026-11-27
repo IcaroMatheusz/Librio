@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, PixelRatio, Platform, StyleSheet, View } from 'react-native';
 import Pdf, { type PdfRef } from 'react-native-pdf';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { palette } from './atoms';
 
 export type ReadingMode = 'page' | 'manga' | 'vertical';
@@ -8,10 +9,11 @@ export type PdfReaderProps = {
   uri: string;
   initialProgress: number;
   initialPage?: number;
+  fade: boolean;
   readingMode: ReadingMode;
   command: { page: number } | null;
   onPage: (current: number, total: number) => void;
-  onTap: () => void;
+  onTap: (x: number, width: number) => void;
   onError: () => void;
 };
 
@@ -19,13 +21,18 @@ export default function PdfReader(props: PdfReaderProps) {
   return <PdfDocument key={`${props.uri}-${props.readingMode}`} {...props} />;
 }
 
-function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, onPage, onTap, onError }: PdfReaderProps) {
+function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, fade, onPage, onTap, onError }: PdfReaderProps) {
   const pdf = useRef<PdfRef>(null);
   const source = useMemo(() => ({ uri }), [uri]);
   const start = useRef({ page: initialPage, progress: initialProgress });
   const waitingFor = useRef<number | null>(null);
   const totalPages = useRef(0);
   const lastCommand = useRef(command);
+  const lastPage = useRef<number | null>(null);
+  const [width, setWidth] = useState(0);
+  const opacity = useSharedValue(1);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  useEffect(() => { if (!fade) opacity.value = 1; }, [fade, opacity]);
   const vertical = readingMode === 'vertical';
   const reversed = readingMode === 'manga' && Platform.OS === 'android';
   const mapPage = (current: number, total: number) => reversed ? total - current + 1 : current;
@@ -33,13 +40,24 @@ function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, 
   useEffect(() => {
     if (totalPages.current && command && command !== lastCommand.current) {
       lastCommand.current = command;
-      waitingFor.current = null;
-      pdf.current?.setPage(mapPage(command.page, totalPages.current));
+      const nativePage = mapPage(command.page, totalPages.current);
+      waitingFor.current = nativePage;
+      pdf.current?.setPage(nativePage);
     }
   }, [command, reversed]);
 
+  function display(current: number, total: number) {
+    if (fade && lastPage.current !== current) {
+      opacity.value = lastPage.current === null ? 0 : 0.7;
+      opacity.value = withTiming(1, { duration: 180 });
+    }
+    lastPage.current = current;
+    onPage(current, total);
+  }
+
   return (
-    <View style={styles.root}>
+    <View style={styles.root} onLayout={({ nativeEvent }) => setWidth(nativeEvent.layout.width)}>
+      <Animated.View style={[styles.root, fadeStyle]}>
       <Pdf
         ref={pdf}
         source={source}
@@ -54,7 +72,7 @@ function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, 
         onLoadComplete={(total) => {
           const target = Math.max(1, Math.min(total, start.current.page ?? Math.round((total * start.current.progress) / 100)));
           totalPages.current = total;
-          onPage(target, total);
+          display(target, total);
           const nativePage = mapPage(target, total);
           if (nativePage !== 1) {
             waitingFor.current = nativePage;
@@ -64,16 +82,17 @@ function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, 
         onPageChanged={(current, total) => {
           if (!totalPages.current || (waitingFor.current !== null && current !== waitingFor.current)) return;
           waitingFor.current = null;
-          onPage(mapPage(current, total), total);
+          display(mapPage(current, total), total);
         }}
-        onPageSingleTap={onTap}
+        onPageSingleTap={(_page, x) => onTap(Platform.OS === 'android' ? x / PixelRatio.get() : x, width)}
         onError={onError}
       />
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#100E16' },
-  pdf: { flex: 1, backgroundColor: '#100E16' },
+  root: { flex: 1, backgroundColor: palette.reader },
+  pdf: { flex: 1, backgroundColor: palette.reader },
 });

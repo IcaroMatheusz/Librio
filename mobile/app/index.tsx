@@ -282,7 +282,7 @@ const s = StyleSheet.create({
   background: { flex: 1, overflow: 'hidden', backgroundColor: palette.background },
   shade: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(12, 10, 18, 0.65)',
+    backgroundColor: 'rgba(15, 17, 26, 0.65)',
   },
   content: {
     flexGrow: 1,
@@ -330,7 +330,7 @@ const s = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(26, 22, 36, 0.96)',
+    backgroundColor: palette.surface,
     shadowColor: '#000000',
     shadowOpacity: 0.35,
     shadowRadius: 24,
@@ -362,7 +362,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(12, 10, 18, 0.80)',
+    backgroundColor: palette.input,
     color: '#FFFFFF',
     fontSize: 14,
   },
@@ -385,7 +385,7 @@ const s = StyleSheet.create({
   },
   buttonPressed: {
     transform: [{ scale: 0.985 }],
-    backgroundColor: '#C8B8FF',
+    backgroundColor: palette.violetLight,
   },
   buttonText: {
     fontSize: 14,
@@ -447,7 +447,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: '#191D2B',
+    backgroundColor: palette.input,
     color: '#FFFFFF',
     fontSize: 14,
   },

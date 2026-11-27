@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { Lucide } from '@react-native-vector-icons/lucide';
 import { Alert, FlatList, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Constants from 'expo-constants';
 import type { Directory, File } from 'expo-file-system';
@@ -11,7 +12,7 @@ import { wallpapers } from '../src/config/wallpapers';
 import { formatBytes, getCloudStorage, getProfile, type StorageInfo } from '../src/lib/account';
 import { getBookCoverUrl, getBookProgress, getBooks, pickAndUploadBook, removeBook, updateBook, updateBookCover } from '../src/lib/library';
 import {
-  changeLocalCategory, changeLocalCover, importLocalFiles, importLocalFolder, localCategory, localFolder, localTitle,
+  changeLocalCategory, changeLocalCover, importLocalFiles, importLocalFolder, localCategory, localFolder, localProgressKey, localTitle,
   readRememberedLocalFiles, removeLocalSelection, renameLocalCategory, restoreLocalCover,
 } from '../src/lib/local';
 import RarExtractor from '../src/components/RarExtractor';
@@ -19,6 +20,10 @@ import { generateLocalCover, getLocalCover } from '../src/lib/localCovers';
 import { checkForAppUpdate, dismissAppUpdate, type AppUpdate } from '../src/lib/updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Book, LocalBook } from '../src/lib/types';
+import { compareChapterTitles } from '../src/lib/chapterNavigation';
+import { cloudProgressKey, hideFromResume, readCheckpoints, type Checkpoint } from '../src/lib/readingHistory';
+import { IconButton } from '../src/components/IconButton';
+import { useReaderSettings } from '../src/components/ReaderSettings';
 
 type Entry = {
   key: string;
@@ -41,10 +46,12 @@ export default function Library() {
   const guest = offline === '1';
   const { width, columns, contentPadding, cardGap, maxContentWidth, isTablet } = useResponsiveLayout();
   const insets = useSafeAreaInsets();
+  const { open: openPreferences } = useReaderSettings();
   const [books, setBooks] = useState<Book[]>([]);
   const [local, setLocal] = useState<LocalBook[]>([]);
   const [covers, setCovers] = useState<Record<string, string | null>>({});
   const [progress, setProgress] = useState<Record<string, number>>({});
+  const [history, setHistory] = useState<Record<string, Checkpoint>>({});
   const [avatar, setAvatar] = useState<string | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
   const [localCovers, setLocalCovers] = useState<Record<string, string>>({});
@@ -66,7 +73,11 @@ export default function Library() {
   const operation = useRef(false);
 
   const load = useCallback(async () => {
-    const loadLocal = readRememberedLocalFiles().then(setLocal).catch(() => {
+    const loadLocal = readRememberedLocalFiles().then(async (items) => {
+      const saved = await readCheckpoints(items.map(localProgressKey)).catch(() => ({}));
+      setLocal(items);
+      setHistory((previous) => ({ ...previous, ...saved }));
+    }).catch(() => {
       Alert.alert('Estante local indisponível', 'Não foi possível carregar a lista de arquivos importados.');
     });
 
@@ -75,10 +86,12 @@ export default function Library() {
     const loadCloud = getBooks().then(async (items) => {
       setBooks(items);
       setCloudError(false);
+      const saved = await readCheckpoints(items.map((book) => cloudProgressKey(book.id))).catch((): Record<string, Checkpoint> => ({}));
+      setHistory((previous) => ({ ...previous, ...saved }));
       const details = await Promise.all(items.map(async (book) => {
         const [cover, percent] = await Promise.all([
           getBookCoverUrl(book).catch(() => null),
-          getBookProgress(book.id).catch(() => 0),
+          getBookProgress(book.id).catch(() => saved[cloudProgressKey(book.id)]?.percent ?? 0),
         ]);
         return { id: book.id, cover, percent };
       }));
@@ -99,14 +112,14 @@ export default function Library() {
   }, [load]));
 
   useFocusEffect(useCallback(() => {
-    if (!showingLocal) return;
     const decoder = new AbortController();
     const available: Record<string, string> = {};
     const pending = local.filter((book) => {
       try {
         const cover = getLocalCover(book);
         if (cover) available[book.uri] = cover;
-        return !cover;
+        const saved = history[localProgressKey(book)];
+        return !cover && (showingLocal || !!(saved && !saved.hidden && saved.percent < 100 && (saved.percent > 0 || saved.lastReadAt)));
       } catch { return false; }
     });
     setLocalCovers(available);
@@ -129,7 +142,7 @@ export default function Library() {
       }
     })();
     return () => decoder.abort();
-  }, [local, showingLocal]));
+  }, [local, history, showingLocal]));
 
   useFocusEffect(useCallback(() => {
     if (checkedUpdate.current || Platform.OS !== 'android') return;
@@ -192,15 +205,16 @@ export default function Library() {
   }
 
   const search = query.trim().toLocaleLowerCase();
-  const entries: Entry[] = showingLocal
-    ? local.map((book) => ({
-      key: book.uri, title: localTitle(book.name), format: book.format, category: localCategory(book),
-      local: book, detail: book.size > 0 ? formatBytes(book.size) : undefined, cover: localCovers[book.uri],
-    }))
-    : books.map((book) => ({
-      key: book.id, title: book.title, format: book.file_type, detail: book.author,
-      cover: covers[book.id] ?? undefined, progress: progress[book.id], book,
-    }));
+  const localEntries: Entry[] = local.map((book) => ({
+    key: book.uri, title: localTitle(book.name), format: book.format, category: localCategory(book),
+    local: book, detail: book.size > 0 ? formatBytes(book.size) : undefined, cover: localCovers[book.uri],
+    progress: history[localProgressKey(book)]?.percent,
+  }));
+  const cloudEntries: Entry[] = books.map((book) => ({
+    key: book.id, title: book.title, format: book.file_type, detail: book.author,
+    cover: covers[book.id] ?? undefined, progress: progress[book.id] ?? history[cloudProgressKey(book.id)]?.percent, book,
+  }));
+  const entries = showingLocal ? localEntries : cloudEntries;
   const filtered = entries.filter((entry) => [entry.title, entry.detail, entry.format, entry.category].some((value) => value?.toLocaleLowerCase().includes(search)));
   const folders = new Map<string, { name: string; count: number }>();
   for (const book of local) {
@@ -216,13 +230,32 @@ export default function Library() {
   }
   const rows: Row[] = [];
   for (const [category, group] of [...groups].sort(([left], [right]) => left.localeCompare(right))) {
-    if (showingLocal) rows.push({ key: `category:${category}`, category, count: group.length });
+    if (showingLocal) {
+      rows.push({ key: `category:${category}`, category, count: group.length });
+      group.sort((a, b) => compareChapterTitles(a.title, b.title) || a.key.localeCompare(b.key));
+    }
     for (let i = 0; i < group.length; i += columns) rows.push({ key: group[i].key, entries: group.slice(i, i + columns) });
   }
   const freeBytes = storage ? Math.max(0, storage.max_bytes - storage.used_bytes) : 0;
   const quotaPercent = storage?.max_bytes ? Math.min(100, Math.max(0, storage.used_bytes / storage.max_bytes * 100)) : 0;
   const cardWidth = (Math.min(width - insets.left - insets.right, maxContentWidth) - 2 * contentPadding - (columns - 1) * cardGap) / columns;
-  const resume = books.filter((book) => progress[book.id] > 0 && progress[book.id] < 100).slice(0, 5);
+  const resume = [...localEntries, ...(!guest ? cloudEntries : [])].flatMap((entry) => {
+    const key = entry.local ? localProgressKey(entry.local) : cloudProgressKey(entry.key);
+    const saved = history[key];
+    const percent = entry.progress ?? 0;
+    if (saved?.hidden || percent >= 100 || (percent <= 0 && !saved?.lastReadAt)) return [];
+    return [{ entry, key, percent, saved }];
+  }).sort((a, b) => (b.saved?.lastReadAt ?? 0) - (a.saved?.lastReadAt ?? 0) || compareChapterTitles(a.entry.title, b.entry.title));
+  const resumeWidth = Math.min(290, Math.max(205, width - 90));
+
+  async function removeResume(key: string) {
+    try {
+      await hideFromResume(key);
+      setHistory((previous) => ({ ...previous, [key]: { ...(previous[key] ?? { percent: 0 }), hidden: true } }));
+    } catch {
+      Alert.alert('Não foi possível remover', 'Tente novamente para tirar esta obra de “Continuar lendo”.');
+    }
+  }
 
   return (
     <Screen>
@@ -242,6 +275,7 @@ export default function Library() {
             <View style={s.toolbar}>
               <Brand />
               <View style={s.toolbarActions}>
+                <IconButton icon="settings-2" label="Preferências de leitura" onPress={openPreferences} />
                 {guest ? (
                   <Action title="Entrar" quiet onPress={() => router.replace('/')} />
                 ) : (
@@ -258,6 +292,37 @@ export default function Library() {
               <Heading style={s.heroTitle}>Minha estante</Heading>
               <Text style={s.heroCopy}>{guest ? 'Importe suas obras e leia direto do aparelho.' : `${books.length} na nuvem · ${local.length} neste dispositivo`}</Text>
             </WallpaperHero>
+            {resume.length > 0 && !search && (
+              <View style={s.group}>
+                <Text accessibilityRole="header" style={s.sectionTitle}>Continuar lendo</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.rail}>
+                  {resume.map(({ entry, key, percent, saved }) => (
+                    <View key={key} style={[s.resume, { width: resumeWidth }]}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Continuar ${entry.title}`}
+                        style={({ pressed }) => [s.resumeAction, pressed && s.pressed]}
+                        onPress={() => router.push({ pathname: '/reader/[id]', params: entry.local
+                          ? { id: 'local', uri: entry.local.uri }
+                          : { id: entry.key, volume: saved?.volumeId } })}>
+                        <View style={s.resumeCover}>
+                          {entry.cover ? <Image source={{ uri: entry.cover }} style={s.resumeArtwork} resizeMode="cover" /> : <BookIcon size={32} />}
+                        </View>
+                        <View style={s.resumeInfo}>
+                          <Text style={s.resumeTitle} numberOfLines={2}>{entry.title}</Text>
+                          <View style={s.resumeMeta}>
+                            <Lucide name={entry.local ? 'smartphone' : 'cloud'} color={palette.mutedDark} size={14} accessible={false} />
+                            <Text style={s.resumeCaption}>{entry.local ? 'No aparelho' : 'Nuvem'}</Text>
+                          </View>
+                          <View style={s.track}><View style={[s.fill, { width: `${percent}%` }]} /></View>
+                          <Text style={s.resumeCaption}>{percent}% lido</Text>
+                        </View>
+                      </Pressable>
+                      <IconButton icon="x" label={`Remover ${entry.title} de Continuar lendo`} onPress={() => void removeResume(key)}
+                        style={s.resumeDismiss} size={16} />
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
             {!guest && (
               <View style={s.quota}>
                 <Text style={s.sectionTitle} accessibilityRole="header">Armazenamento na nuvem</Text>
@@ -270,23 +335,6 @@ export default function Library() {
                     </View>
                   </>
                 ) : <Text style={s.subtle}>A cota aparece quando a conta estiver conectada à nuvem.</Text>}
-              </View>
-            )}
-            {!showingLocal && resume.length > 0 && !search && (
-              <View style={s.group}>
-                <Text accessibilityRole="header" style={s.sectionTitle}>Continuar lendo</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.rail}>
-                  {resume.map((book) => (
-                    <Pressable key={book.id} style={({ pressed }) => [s.resume, pressed && s.pressed]} onPress={() => router.push({ pathname: '/reader/[id]', params: { id: book.id } })}>
-                      <View style={s.resumeMark}><BookIcon size={17} /></View>
-                      <View style={s.resumeBody}>
-                        <Text numberOfLines={1} style={s.itemTitle}>{book.title}</Text>
-                        <Text style={s.subtle}>{progress[book.id]}% lido</Text>
-                      </View>
-                      <Text style={s.chevron}>›</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
               </View>
             )}
             <View style={s.group}>
@@ -482,7 +530,7 @@ export default function Library() {
 const s = StyleSheet.create({
   list: { alignSelf: 'center', width: '100%', paddingTop: 10, paddingBottom: 32 },
   header: { gap: 19, paddingBottom: 16 },
-  toolbar: { minHeight: 50, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  toolbar: { minHeight: 50, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   toolbarActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   avatar: { width: 48, height: 48, borderRadius: 18, overflow: 'hidden', backgroundColor: palette.surfaceLight, alignItems: 'center', justifyContent: 'center' },
   avatarLabel: { color: palette.violetLight, fontWeight: '800', fontSize: 12 },
@@ -492,10 +540,16 @@ const s = StyleSheet.create({
   sectionTitle: { fontSize: 19, fontWeight: '800', color: palette.text },
   subtle: { color: palette.muted, fontSize: 13, lineHeight: 19 },
   rail: { gap: 9 },
-  resume: { width: 222, gap: 9, padding: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: palette.surface, borderRadius: 16, borderWidth: 1, borderColor: palette.border },
-  resumeMark: { width: 38, height: 42, borderRadius: 12, backgroundColor: palette.violetGlow, alignItems: 'center', justifyContent: 'center' },
+  resume: { backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, overflow: 'hidden' },
+  resumeAction: { flex: 1, flexDirection: 'row', alignItems: 'stretch' },
+  resumeCover: { width: 102, minHeight: 151, backgroundColor: palette.cardElevated, alignItems: 'center', justifyContent: 'center' },
+  resumeArtwork: { ...StyleSheet.absoluteFill, width: '100%', height: '100%' },
+  resumeInfo: { flex: 1, justifyContent: 'flex-end', padding: 12, paddingTop: 47, gap: 5 },
+  resumeTitle: { color: palette.text, fontWeight: '900', fontSize: 16, lineHeight: 21 },
+  resumeMeta: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  resumeCaption: { color: palette.muted, fontSize: 11 },
+  resumeDismiss: { position: 'absolute', top: 4, right: 4, width: 44, height: 44, borderRadius: 12, backgroundColor: palette.input },
   resumeBody: { flex: 1, gap: 2 },
-  chevron: { color: palette.violetLight, fontSize: 22 },
   tabs: { flexDirection: 'row', backgroundColor: palette.surface, borderRadius: 16, padding: 4, gap: 4 },
   tab: { minHeight: 44, flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4, borderRadius: 12 },
   tabActive: { backgroundColor: palette.surfaceLight },
