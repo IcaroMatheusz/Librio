@@ -1,21 +1,18 @@
-import { inflateSync, strFromU8, unzipSync } from 'fflate';
-import { File, FileMode, type Directory } from 'expo-file-system';
+import { File, type Directory } from 'expo-file-system';
 import { Image } from 'react-native';
 import { fromByteArray } from 'base64-js';
+import { ZipBook } from './zipBook';
+import { nativeMedia } from './nativeMedia';
 
 export type ReaderPage = { uri: string; aspectRatio: number };
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|avif)$/i;
 
 export async function getComicPage(file: File): Promise<ReaderPage> {
   const size = await Image.getSize(file.uri).catch(() => null);
   return { uri: file.uri, aspectRatio: size && size.width > 0 && size.height > 0 ? size.width / size.height : 0.72 };
 }
-const MAX_ARCHIVE_INPUT = 180 * 1024 * 1024;
-const MAX_ARCHIVE_OUTPUT = 300 * 1024 * 1024;
-const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|avif)$/i;
 
-function base64(bytes: Uint8Array) {
-  return fromByteArray(bytes);
-}
+export const bytesToBase64 = fromByteArray;
 
 function mimeFor(name: string) {
   const extension = name.split('.').pop()?.toLowerCase();
@@ -30,109 +27,37 @@ function compareNatural(left: string, right: string) {
   return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-async function readZip(uri: string) {
-  const source = new File(uri);
-  if (source.size > MAX_ARCHIVE_INPUT) throw new Error('Este arquivo é grande demais para abrir no leitor local (limite de 180 MB).');
-  const bytes = new Uint8Array(await source.arrayBuffer());
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const tailStart = Math.max(0, bytes.byteLength - 65_557);
-  let endRecord = -1;
-  for (let offset = bytes.byteLength - 22; offset >= tailStart; offset -= 1) {
-    if (view.getUint32(offset, true) === 0x06054b50 && offset + 22 + view.getUint16(offset + 20, true) === bytes.byteLength) { endRecord = offset; break; }
+export async function extractNativeComic(file: File, directory: Directory, signal: AbortSignal, coverOnly = false) {
+  if (!nativeMedia?.extractComic) return null;
+  if (signal.aborted) throw new Error('Extração cancelada.');
+  const jobId = directory.uri;
+  const cancel = () => nativeMedia?.cancelComic?.(jobId);
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    const found = await nativeMedia.extractComic(file.uri, directory.uri, coverOnly, jobId);
+    if (signal.aborted) throw new Error('Extração cancelada.');
+    return found.sort((left, right) => compareNatural(left.name, right.name));
+  } finally {
+    signal.removeEventListener('abort', cancel);
   }
-  if (endRecord < 0) throw new Error('Este arquivo compactado está incompleto ou inválido.');
-  let cursor = view.getUint32(endRecord + 16, true);
-  const entryCount = view.getUint16(endRecord + 10, true);
-  let expandedBytes = 0;
-  for (let index = 0; index < entryCount; index += 1) {
-    if (cursor + 46 > bytes.byteLength || view.getUint32(cursor, true) !== 0x02014b50) throw new Error('O índice deste arquivo compactado não é válido.');
-    const size = view.getUint32(cursor + 24, true);
-    if (size === 0xffffffff) throw new Error('Arquivos ZIP64 ainda não são compatíveis com o leitor.');
-    expandedBytes += size;
-    if (expandedBytes > MAX_ARCHIVE_OUTPUT) throw new Error('O conteúdo descompactado ultrapassa o limite seguro de 300 MB.');
-    cursor += 46 + view.getUint16(cursor + 28, true) + view.getUint16(cursor + 30, true) + view.getUint16(cursor + 32, true);
-  }
-  return unzipSync(bytes, {
-    filter(file) {
-      return !file.name.startsWith('__MACOSX/') &&
-        !file.name.split('/').some((segment) => segment === '..' || segment.startsWith('.'));
-    },
-  });
 }
 
-export async function readComicZip(uri: string, folder: Directory, isActive: () => boolean): Promise<ReaderPage[]> {
-  const file = new File(uri);
-  const handle = file.open(FileMode.ReadOnly);
+export async function readComicZip(uri: string, folder: Directory, signal: AbortSignal, coverOnly = false): Promise<ReaderPage[]> {
+  const archive = await ZipBook.open(uri);
   try {
-    const invalid = 'O índice deste arquivo CBZ está incompleto ou inválido.';
-    async function readAt(offset: number, length: number) {
-      if (offset < 0 || length < 0 || offset + length > file.size) throw new Error(invalid);
-      handle.offset = offset;
-      const bytes = await handle.readBytes(length);
-      if (bytes.length !== length) throw new Error(invalid);
-      return bytes;
-    }
-
-    const tailOffset = Math.max(0, file.size - 65_557);
-    const end = await readAt(tailOffset, file.size - tailOffset);
-    const tail = new DataView(end.buffer, end.byteOffset, end.byteLength);
-    let footer = end.length - 22;
-    while (footer >= 0 && (tail.getUint32(footer, true) !== 0x06054b50 ||
-      footer + 22 + tail.getUint16(footer + 20, true) !== end.length)) footer -= 1;
-    if (footer < 0 || tail.getUint32(footer + 4, true) !== 0) throw new Error(invalid);
-    const entryCount = tail.getUint16(footer + 10, true);
-    const indexSize = tail.getUint32(footer + 12, true);
-    const indexOffset = tail.getUint32(footer + 16, true);
-    if (indexSize > 16 * 1024 * 1024 || indexOffset + indexSize > tailOffset + footer) throw new Error(invalid);
-
-    const index = await readAt(indexOffset, indexSize);
-    const central = new DataView(index.buffer, index.byteOffset, index.byteLength);
-    const entries: { name: string; flags: number; method: number; compressed: number; size: number; offset: number }[] = [];
-    let cursor = 0;
-    let expanded = 0;
-    for (let entry = 0; entry < entryCount; entry += 1) {
-      if (cursor + 46 > index.length || central.getUint32(cursor, true) !== 0x02014b50) throw new Error(invalid);
-      const flags = central.getUint16(cursor + 8, true);
-      const method = central.getUint16(cursor + 10, true);
-      const compressed = central.getUint32(cursor + 20, true);
-      const size = central.getUint32(cursor + 24, true);
-      const nameOffset = cursor + 46;
-      const nameEnd = nameOffset + central.getUint16(cursor + 28, true);
-      const offset = central.getUint32(cursor + 42, true);
-      cursor = nameEnd + central.getUint16(cursor + 30, true) + central.getUint16(cursor + 32, true);
-      if (cursor > index.length) throw new Error(invalid);
-      const name = strFromU8(index.subarray(nameOffset, nameEnd), !(flags & 0x800));
-      if (!size || !IMAGE_EXTENSIONS.test(name) || name.split('/').some((part) => part === '__MACOSX' || part.startsWith('.'))) continue;
-      expanded += size;
-      if (expanded > 512 * 1024 * 1024 || Math.max(size, compressed) > 48 * 1024 * 1024) {
-        throw new Error('As imagens deste CBZ ultrapassam os limites do leitor móvel.');
-      }
-      entries.push({ name, flags, method, compressed, size, offset });
-    }
-
+    const entries = [...archive.entries.values()].filter((entry) => entry.size > 0 && IMAGE_EXTENSIONS.test(entry.name))
+      .sort((left, right) => compareNatural(left.name, right.name));
     if (!entries.length) throw new Error('O arquivo CBZ não contém páginas de imagem compatíveis.');
-    entries.sort((left, right) => compareNatural(left.name, right.name));
     const pages: ReaderPage[] = [];
-    for (const { name, flags, method, compressed, size, offset } of entries) {
-      if (!isActive()) break;
-      if (flags & 1 || (method !== 0 && method !== 8)) throw new Error('O CBZ usa criptografia ou compactação incompatível.');
-      const header = await readAt(offset, 30);
-      const fields = new DataView(header.buffer, header.byteOffset, header.byteLength);
-      if (fields.getUint32(0, true) !== 0x04034b50) throw new Error(invalid);
-      const start = offset + 30 + fields.getUint16(26, true) + fields.getUint16(28, true);
-      if (!compressed || start + compressed > indexOffset) throw new Error(invalid);
-      const input = await readAt(start, compressed);
-      const bytes = method === 8 ? inflateSync(input, { out: new Uint8Array(size) }) : input;
-      if (bytes.length !== size) throw new Error(invalid);
-      if (!isActive()) break;
-      const target = new File(folder, `${pages.length + 1}.${name.split('.').pop()?.toLowerCase()}`);
-      target.create();
-      await target.write(bytes);
-      pages.push(await getComicPage(target));
+    for (const entry of coverOnly ? entries.slice(0, 1) : entries) {
+      if (signal.aborted) break;
+      const target = new File(folder, `${pages.length + 1}.${entry.name.split('.').pop()?.toLowerCase()}`);
+      await archive.extract(entry, target, signal);
+      pages.push(coverOnly ? { uri: target.uri, aspectRatio: 0.72 } : await getComicPage(target));
     }
     return pages;
   } finally {
-    handle.close();
+    archive.close();
   }
 }
 
@@ -160,46 +85,88 @@ function decodeText(bytes: Uint8Array) {
   return new TextDecoder('utf-8').decode(bytes);
 }
 
-function inlineChapterAssets(content: string, chapterPath: string, files: Record<string, Uint8Array>) {
-  let result = content.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '').replace(/<script\b[^>]*\/>/gi, '').replace(/\son[a-z]+\s*=\s*(['"])[\s\S]*?\1/gi, '');
-  result = result.replace(/\s(src|poster)=(['"])(.*?)\2/gi, (match, attribute: string, quote: string, source: string) => {
-    const path = resolvePath(chapterPath.split('/').slice(0, -1).join('/'), source);
-    const bytes = files[path];
-    if (!bytes || !IMAGE_EXTENSIONS.test(path) || bytes.length > 20 * 1024 * 1024) return match;
-    return ` ${attribute}=${quote}data:${mimeFor(path)};base64,${base64(bytes)}${quote}`;
-  });
-  return result;
-}
-
-export async function readEpubHtml(
-  uri: string,
-  fontScale: number,
-  initialProgress = 0
-) {
-  const files = await readZip(uri);
-  const container = files['META-INF/container.xml'];
+async function epubPackage(archive: ZipBook) {
+  const container = await archive.read('META-INF/container.xml');
   if (!container) throw new Error('Este EPUB não possui um índice válido.');
   const rootFileTag = decodeText(container).match(/<rootfile\b[^>]*>/i)?.[0] ?? '';
   const opfPath = xmlAttribute(rootFileTag, 'full-path');
-  const opf = files[opfPath];
-  if (!opfPath || !opf) throw new Error('Não foi possível encontrar o conteúdo deste EPUB.');
+  const opf = await archive.read(opfPath);
+  if (!opf) throw new Error('Não foi possível encontrar o conteúdo deste EPUB.');
 
   const packageXml = decodeText(opf);
+  const coverId = [...packageXml.matchAll(/<meta\b[^>]*>/gi)]
+    .map(([tag]) => tag).find((tag) => xmlAttribute(tag, 'name').toLowerCase() === 'cover');
+  const legacyCover = coverId ? xmlAttribute(coverId, 'content') : '';
   const manifest = new Map<string, string>();
-  for (const item of packageXml.matchAll(/<item\b[^>]*>/gi)) {
-    const id = xmlAttribute(item[0], 'id');
-    const href = xmlAttribute(item[0], 'href');
-    const properties = xmlAttribute(item[0], 'properties');
-    if (id && href && !properties.split(/\s+/).includes('nav')) manifest.set(id, resolvePath(opfPath.split('/').slice(0, -1).join('/'), href));
+  let cover = '';
+  for (const [tag] of packageXml.matchAll(/<item\b[^>]*>/gi)) {
+    const id = xmlAttribute(tag, 'id');
+    const href = xmlAttribute(tag, 'href');
+    const properties = xmlAttribute(tag, 'properties').split(/\s+/);
+    if (!id || !href) continue;
+    const path = resolvePath(opfPath.split('/').slice(0, -1).join('/'), href);
+    if (!properties.includes('nav')) manifest.set(id, path);
+    if (properties.includes('cover-image') || (!cover && id === legacyCover)) cover = path;
   }
+  const chapters = [...packageXml.matchAll(/<itemref\b[^>]*>/gi)].flatMap(([tag]) => {
+    const path = manifest.get(xmlAttribute(tag, 'idref'));
+    return path && archive.entries.has(path) ? [path] : [];
+  });
+  return { cover, chapters, images: [...manifest.values()].filter((path) => IMAGE_EXTENSIONS.test(path)) };
+}
+
+export async function extractEpubCover(uri: string, folder: Directory, signal: AbortSignal) {
+  const archive = await ZipBook.open(uri);
+  try {
+    const { cover, chapters, images } = await epubPackage(archive);
+    let path = cover && IMAGE_EXTENSIONS.test(cover) ? cover : '';
+    if (!path && chapters[0] && !signal.aborted) {
+      const first = await archive.read(chapters[0]);
+      const image = first && decodeText(first).match(/<(?:img|image)\b[^>]*?\s(?:src|href|xlink:href)=["']([^"']+)["']/i)?.[1];
+      if (image) path = resolvePath(chapters[0].split('/').slice(0, -1).join('/'), image);
+    }
+    const entry = archive.entries.get(path) ?? archive.entries.get(images[0]);
+    if (!entry || signal.aborted) return undefined;
+    const target = new File(folder, `cover.${entry.name.split('.').pop()?.toLowerCase()}`);
+    await archive.extract(entry, target, signal);
+    return target.uri;
+  } finally {
+    archive.close();
+  }
+}
+
+async function inlineChapterAssets(content: string, chapterPath: string, archive: ZipBook) {
+  const safe = content.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '').replace(/<script\b[^>]*\/>/gi, '').replace(/\son[a-z]+\s*=\s*(['"])[\s\S]*?\1/gi, '');
+  const assets = /\s(src|poster|xlink:href)=(['"])(.*?)\2/gi;
+  const result: string[] = [];
+  let offset = 0;
+  for (const match of safe.matchAll(assets)) {
+    const [, attribute, quote, href] = match;
+    const path = resolvePath(chapterPath.split('/').slice(0, -1).join('/'), href);
+    const data = IMAGE_EXTENSIONS.test(path) ? await archive.read(path) : undefined;
+    if (!data) continue;
+    result.push(safe.slice(offset, match.index), ` ${attribute}=${quote}data:${mimeFor(path)};base64,${bytesToBase64(data)}${quote}`);
+    offset = match.index + match[0].length;
+  }
+  result.push(safe.slice(offset));
+  return result.join('');
+}
+
+export async function readEpubHtml(uri: string, fontScale: number, initialProgress = 0, signal?: AbortSignal) {
+  const archive = await ZipBook.open(uri);
   const chapters: string[] = [];
-  for (const reference of packageXml.matchAll(/<itemref\b[^>]*>/gi)) {
-    const filePath = manifest.get(xmlAttribute(reference[0], 'idref'));
-    const chapter = filePath ? files[filePath] : undefined;
-    if (!filePath || !chapter) continue;
-    const markup = inlineChapterAssets(decodeText(chapter), filePath, files);
-    const body = markup.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? markup;
-    chapters.push(`<section class="chapter">${body}</section>`);
+  try {
+    const publication = await epubPackage(archive);
+    for (const path of publication.chapters) {
+      if (signal?.aborted) throw new Error('Extração cancelada.');
+      const text = await archive.read(path);
+      if (!text) continue;
+      const markup = await inlineChapterAssets(decodeText(text), path, archive);
+      const body = markup.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i)?.[1] ?? markup;
+      chapters.push(`<section class="chapter">${body}</section>`);
+    }
+  } finally {
+    archive.close();
   }
   if (!chapters.length) throw new Error('O EPUB não possui capítulos de texto legíveis.');
   const safeScale = Math.max(0.85, Math.min(1.6, fontScale));
@@ -255,8 +222,4 @@ export async function readEpubHtml(
       });
     })();
   </script></body></html>`;
-}
-
-export function bytesToBase64(bytes: Uint8Array) {
-  return base64(bytes);
 }

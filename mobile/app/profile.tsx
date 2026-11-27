@@ -2,7 +2,8 @@ import { useCallback, useState } from 'react';
 import { Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Action, Heading, palette, Screen, Surface, useResponsiveLayout } from '../src/components/atoms';
-import { WallpaperHero, wallpapers } from '../src/components/WallpaperHero';
+import { WallpaperHero } from '../src/components/WallpaperHero';
+import { wallpapers } from '../src/config/wallpapers';
 import { changeAvatar, formatBytes, getProfile, saveProfile, type StorageInfo } from '../src/lib/account';
 import { requireSupabase } from '../src/lib/supabase';
 

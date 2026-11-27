@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -13,49 +13,62 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut } from 'react-native-reanimated';
 import type { Session } from '@supabase/supabase-js';
 import { requireSupabase } from '../src/lib/supabase';
-import { Action, Badge, BookIcon, palette } from '../src/components/atoms';
+import { Action, BookIcon, palette } from '../src/components/atoms';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { wallpapers } from '../src/components/WallpaperHero';
+import { wallpapers } from '../src/config/wallpapers';
 
-const wallpaper = wallpapers.auth;
+import { AuthNotice } from '../src/components/AuthNotice';
+import { authFeedback, invalidEmail, validEmail, type AuthFeedback } from '../src/lib/authFeedback';
+
+const wallpaper = wallpapers.login;
 const mascotIcon = require('../assets/librio-icon.png');
 
 export default function SignIn() {
+  const { recover: recoverParam } = useLocalSearchParams<{ recover?: string }>();
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [error, setError] = useState<AuthFeedback | null>(null);
+  const [recoveryOpen, setRecoveryOpen] = useState(recoverParam === '1');
   const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveryMessage, setRecoveryMessage] = useState<AuthFeedback | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    let active = true;
     try {
       const client = requireSupabase();
       client.auth.getSession().then(({ data }) => {
+        if (!active) return;
         setSession(data.session);
         if (data.session) router.replace('/library');
       });
-      const { data } = client.auth.onAuthStateChange((_event, next) => {
+      const { data } = client.auth.onAuthStateChange((event, next) => {
+        if (event === 'PASSWORD_RECOVERY') return;
         setSession(next);
         if (next) router.replace('/library');
       });
-      return () => data.subscription.unsubscribe();
+      return () => { active = false; data.subscription.unsubscribe(); };
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Falha na configuração do Supabase.');
+      setError(authFeedback('login', caught));
     }
-  }, []);
+  }, []));
 
   async function submit() {
+    if (busy) return;
+    if (!validEmail(email)) { setError(invalidEmail); return; }
+    if (!password) {
+      setError({ title: 'Informe sua senha', detail: 'Preencha a senha da sua conta para entrar.' });
+      return;
+    }
     setBusy(true);
-    setError('');
+    setError(null);
     try {
       const { error: authError } = await requireSupabase().auth.signInWithPassword({
         email: email.trim().toLowerCase(),
@@ -63,34 +76,32 @@ export default function SignIn() {
       });
       if (authError) throw authError;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Não foi possível entrar.');
+      setError(authFeedback('login', caught));
     } finally {
       setBusy(false);
     }
   }
 
   async function recover() {
-    if (!recoveryEmail.trim()) {
-      setRecoveryMessage('Informe seu e-mail para receber o link de recuperação.');
+    if (recoveryBusy) return;
+    if (!validEmail(recoveryEmail)) {
+      setRecoveryMessage(invalidEmail);
       return;
     }
     setRecoveryBusy(true);
-    setRecoveryMessage('');
+    setRecoveryMessage(null);
     try {
       const { error: resetError } = await requireSupabase().auth.resetPasswordForEmail(
         recoveryEmail.trim().toLowerCase(),
         { redirectTo: Linking.createURL('reset-password') }
       );
       if (resetError) throw resetError;
-      setRecoveryMessage(
-        'Solicitação enviada. Se este e-mail estiver cadastrado, você receberá as instruções para criar uma nova senha.'
-      );
+      setRecoveryMessage({
+        tone: 'success', title: 'Confira sua caixa de entrada',
+        detail: 'Se houver uma conta com esse endereço, você receberá um link. Abra o e-mail mais recente neste aparelho e verifique também a pasta de spam.',
+      });
     } catch (caught) {
-      setRecoveryMessage(
-        caught instanceof Error
-          ? `Não foi possível enviar: ${caught.message}`
-          : 'Não foi possível enviar o e-mail. Tente novamente.'
-      );
+      setRecoveryMessage(authFeedback('recover', caught));
     } finally {
       setRecoveryBusy(false);
     }
@@ -136,6 +147,7 @@ export default function SignIn() {
               style={s.card}
             >
               <Text style={s.title}>Entrar no Librio</Text>
+              <AuthNotice feedback={error} />
 
               <Text style={s.label}>E-mail</Text>
               <TextInput
@@ -144,7 +156,7 @@ export default function SignIn() {
                 autoComplete="email"
                 style={s.input}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value) => { setEmail(value); setError(null); }}
                 placeholder="voce@email.com"
                 placeholderTextColor="#777D92"
               />
@@ -155,7 +167,7 @@ export default function SignIn() {
                 autoComplete="password"
                 style={s.input}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(value) => { setPassword(value); setError(null); }}
                 placeholder="Sua senha secreta"
                 placeholderTextColor="#777D92"
                 onSubmitEditing={() => void submit()}
@@ -163,7 +175,7 @@ export default function SignIn() {
 
               <Pressable
                 onPress={() => {
-                  setRecoveryMessage('');
+                  setRecoveryMessage(null);
                   setRecoveryEmail(email);
                   setRecoveryOpen(true);
                 }}
@@ -187,12 +199,6 @@ export default function SignIn() {
                 </Text>
               </Pressable>
 
-              {!!error && (
-                <Text accessibilityRole="alert" style={s.error}>
-                  {error}
-                </Text>
-              )}
-
               <View style={s.footer}>
                 <Text style={s.footerText}>Ainda não tem conta? </Text>
                 <Pressable onPress={() => router.push('/register')}>
@@ -215,6 +221,7 @@ export default function SignIn() {
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={s.modalBackdrop}
         >
           <Animated.View
@@ -222,19 +229,16 @@ export default function SignIn() {
             exiting={FadeOut.duration(130)}
             style={s.recoveryCard}
           >
-            <View style={s.badgeWrap}>
-              <Badge label="RECUPERAÇÃO DE CONTA" variant="amber" />
-            </View>
-            <Text style={s.title}>Esqueceu sua senha?</Text>
+            <Text style={s.title}>Recuperar senha</Text>
             <Text style={s.caption}>
-              Digite seu e-mail cadastrado e enviaremos o link seguro para redefinir sua senha.
+              Informe o e-mail da sua conta para receber um link de redefinição.
             </Text>
 
             <Text style={s.label}>E-mail</Text>
             <TextInput
               style={s.recoveryInput}
               value={recoveryEmail}
-              onChangeText={setRecoveryEmail}
+              onChangeText={(value) => { setRecoveryEmail(value); setRecoveryMessage(null); }}
               autoCapitalize="none"
               keyboardType="email-address"
               autoComplete="email"
@@ -244,11 +248,7 @@ export default function SignIn() {
               onSubmitEditing={() => void recover()}
             />
 
-            {!!recoveryMessage && (
-              <Text accessibilityRole="alert" style={s.recoveryMessage}>
-                {recoveryMessage}
-              </Text>
-            )}
+            <AuthNotice feedback={recoveryMessage} />
 
             <Pressable
               style={[s.button, recoveryBusy && { opacity: 0.65 }]}
@@ -259,7 +259,7 @@ export default function SignIn() {
                 {recoveryBusy ? (
                   <ActivityIndicator color="#211A34" />
                 ) : (
-                  'Enviar instruções'
+                  recoveryMessage?.tone === 'success' ? 'Enviar novo link' : 'Enviar link de recuperação'
                 )}
               </Text>
             </Pressable>
@@ -279,7 +279,7 @@ export default function SignIn() {
 
 const s = StyleSheet.create({
   flex: { flex: 1 },
-  background: { flex: 1, backgroundColor: palette.background },
+  background: { flex: 1, overflow: 'hidden', backgroundColor: palette.background },
   shade: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(12, 10, 18, 0.65)',
@@ -335,9 +335,6 @@ const s = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 24,
     elevation: 12,
-  },
-  badgeWrap: {
-    marginBottom: 6,
   },
   title: {
     color: '#FFFFFF',
@@ -396,12 +393,6 @@ const s = StyleSheet.create({
     color: '#1E192D',
   },
   arrow: { fontSize: 16 },
-  error: {
-    marginTop: 12,
-    color: '#FFB3B3',
-    fontSize: 12,
-    lineHeight: 18,
-  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -449,12 +440,6 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.16)',
     backgroundColor: palette.panel,
-  },
-  recoveryMessage: {
-    color: '#D8CCFF',
-    fontSize: 12.5,
-    lineHeight: 19,
-    marginTop: 12,
   },
   recoveryInput: {
     minHeight: 48,

@@ -25,7 +25,8 @@ import { getBooks } from '../src/lib/library';
 import { requireSupabase } from '../src/lib/supabase';
 import type { Book } from '../src/lib/types';
 
-import { WallpaperHero, wallpapers } from '../src/components/WallpaperHero';
+import { WallpaperHero } from '../src/components/WallpaperHero';
+import { wallpapers } from '../src/config/wallpapers';
 
 type Volume = {
   id: string;

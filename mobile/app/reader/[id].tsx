@@ -3,7 +3,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
@@ -13,12 +13,14 @@ import PdfReader, { type ReadingMode } from '../../src/components/PdfReader';
 import RarExtractor from '../../src/components/RarExtractor';
 import { getBookProgress, getBookUrl, markBookOpened, saveBookProgress } from '../../src/lib/library';
 import { findLocalBook, getLocalFile, localProgressKey, reconnectLocalBook } from '../../src/lib/local';
-import { readComicZip, readEpubHtml, type ReaderPage } from '../../src/lib/reader';
+import { extractNativeComic, readComicZip, readEpubHtml, type ReaderPage } from '../../src/lib/reader';
 import { requireSupabase } from '../../src/lib/supabase';
 import { getReadingFormat, type Book, type LocalBook, type ReadingFormat } from '../../src/lib/types';
+import { estimateRemaining, sampleReadingPace, type ReadingPace } from '../../src/lib/readingPace';
+import { saveAutomaticCover } from '../../src/lib/localCovers';
 
-type Source = { file: File; format: ReadingFormat; title: string; key: string; cloudId?: string };
-type Checkpoint = { percent: number; page?: number };
+type Source = { file: File; format: ReadingFormat; title: string; key: string; cloudId?: string; localBook?: LocalBook };
+type Checkpoint = { percent: number; page?: number; pace?: ReadingPace };
 const modes: { value: ReadingMode; label: string }[] = [
   { value: 'page', label: 'Páginas' },
   { value: 'manga', label: 'Mangá' },
@@ -29,6 +31,10 @@ const progressWrites = new Map<string, Promise<void>>();
 
 function boundPercent(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
+}
+
+function validPace(value: ReadingPace | undefined) {
+  return value && Number.isFinite(value.seconds) && value.seconds > 0 && Number.isFinite(value.fraction) && value.fraction > 0 ? value : undefined;
 }
 
 async function cacheCloudBook(book: Book, format: ReadingFormat) {
@@ -63,18 +69,19 @@ async function readCheckpoint(source: Source) {
     const data = JSON.parse(saved ?? '0');
     device = typeof data === 'number'
       ? { percent: boundPercent(data) }
-      : { percent: boundPercent(data.percent), page: Number.isInteger(data.page) ? data.page : undefined };
+      : { percent: boundPercent(data.percent), page: Number.isInteger(data.page) ? data.page : undefined,
+        pace: validPace(data.pace) };
   } catch { /* A damaged checkpoint does not prevent reading. */ }
   if (!source.cloudId) return device;
   const cloud = boundPercent(await getBookProgress(source.cloudId).catch(() => device.percent));
-  return cloud === device.percent ? device : { percent: cloud };
+  return cloud === device.percent ? device : { percent: cloud, pace: device.pace };
 }
 
-function saveCheckpoint(source: Source, checkpoint: Checkpoint) {
+function saveCheckpoint(source: Source, checkpoint: Checkpoint, syncCloud: boolean) {
   const previous = progressWrites.get(source.key) ?? Promise.resolve();
   const write = previous.then(async () => {
     await AsyncStorage.setItem(source.key, JSON.stringify(checkpoint)).catch(() => {});
-    if (source.cloudId) await saveBookProgress(source.cloudId, checkpoint.percent).catch(() => {});
+    if (source.cloudId && syncCloud) await saveBookProgress(source.cloudId, checkpoint.percent).catch(() => {});
   });
   progressWrites.set(source.key, write);
   void write.then(() => {
@@ -106,12 +113,15 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
   const [controls, setControls] = useState(true);
   const [percent, setPercent] = useState(0);
   const checkpoint = useRef<Checkpoint>({ percent: 0 });
+  const [pace, setPace] = useState<ReadingPace>({ seconds: 0, fraction: 0 });
+  const lastReading = useRef<{ position: number; time: number } | null>(null);
   const epub = useRef<WebView<object>>(null);
 
   useEffect(() => {
     let active = true;
+    const extraction = new AbortController();
     let extracted: Directory | null = null;
-    let zipReading = false;
+    let processing = false;
 
     void (async () => {
       try {
@@ -130,7 +140,7 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
             }
             return;
           }
-          opened = { file, format: book.format, title: book.name.replace(/\.[^.]+$/, ''), key: localProgressKey(book) };
+          opened = { file, format: book.format, title: book.name.replace(/\.[^.]+$/, ''), key: localProgressKey(book), localBook: book };
         } else {
           if (!id || id === 'local') throw new Error('Obra não identificada');
           const { data, error: loadError } = await requireSupabase().from('books').select('*').eq('id', id).single();
@@ -150,6 +160,7 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
         if (!active) return;
         checkpoint.current = saved;
         setPercent(saved.percent);
+        if (saved.pace) setPace(saved.pace);
         setPage(saved.page ?? 1);
         if (opened.cloudId) {
           await markBookOpened(opened.cloudId).catch(() => {});
@@ -162,23 +173,36 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
         }
         if (opened.format === 'epub') {
           setStatus('Preparando o texto…');
-          const content = await readEpubHtml(opened.file.uri, 1, saved.percent);
+          const content = await readEpubHtml(opened.file.uri, 1, saved.percent, extraction.signal);
           if (active) setHtml(content);
           return;
         }
         setStatus('Organizando as páginas…');
         extracted = new Directory(Paths.cache, 'librio-pages-v2', `${Date.now()}-${Math.random().toString(36).slice(2)}`);
         extracted.create({ intermediates: true });
-        if (opened.format === 'cbr') {
-          setDirectory(extracted);
-          return;
-        }
-        zipReading = true;
+        processing = true;
         try {
-          const found = await readComicZip(opened.file.uri, extracted, () => active);
-          if (active) showComic(found);
+          if (opened.format === 'cbr') {
+            let found: ReaderPage[] | null = null;
+            try {
+              found = await extractNativeComic(opened.file, extracted, extraction.signal);
+            } catch (error) {
+              if (!active) return;
+              // Some solid RAR4 archives require the alternate decoder.
+              if (!(error instanceof Error) || !/solid/i.test(error.message)) throw error;
+            }
+            if (active && found) showComic(found, opened.localBook);
+            else if (active) {
+              const fallback = new Directory(extracted, 'rar-fallback');
+              fallback.create();
+              setDirectory(fallback);
+            }
+          } else {
+            const found = await readComicZip(opened.file.uri, extracted, extraction.signal);
+            if (active) showComic(found, opened.localBook);
+          }
         } finally {
-          zipReading = false;
+          processing = false;
           if (!active && extracted.exists) extracted.delete();
         }
       } catch (cause) {
@@ -192,30 +216,46 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
 
     return () => {
       active = false;
-      if (!zipReading && extracted?.exists) extracted.delete();
+      extraction.abort();
+      if (!processing && extracted?.exists) extracted.delete();
     };
   }, [id, uri]);
 
-  function showComic(found: ReaderPage[]) {
+  function showComic(found: ReaderPage[], localBook?: LocalBook) {
     const saved = checkpoint.current;
     setPage(Math.max(1, Math.min(found.length, saved.page ?? Math.round(found.length * saved.percent / 100))));
     setTotal(found.length);
     setPages(found);
+    if (localBook && found[0]) void saveAutomaticCover(localBook, new File(found[0].uri)).catch(() => {});
   }
 
-  const persist = useCallback((value: number, current?: number) => {
-    const normalized = boundPercent(value);
-    if (!source || (normalized === checkpoint.current.percent && current === checkpoint.current.page)) return;
-    checkpoint.current = { percent: normalized, page: current };
+  const persist = useCallback((value: number, current?: number, count = 0) => {
+    if (!source || !Number.isFinite(value)) return;
+    const normalized = boundPercent(value < 100 ? Math.min(99, value) : 100);
+    const position = Math.max(0, Math.min(1, value / 100));
+    const time = Date.now();
+    const previous = lastReading.current;
+    let measured = checkpoint.current.pace;
+    if (!previous || previous.position !== position) {
+      lastReading.current = { position, time };
+      if (previous) {
+        const baseline = measured ?? { seconds: 0, fraction: 0 };
+        const sample = sampleReadingPace(baseline, previous.position, position, (time - previous.time) / 1000, count);
+        if (sample !== baseline) { measured = sample; setPace(sample); }
+      }
+    }
+    if (normalized === checkpoint.current.percent && current === checkpoint.current.page && measured === checkpoint.current.pace) return;
+    const syncCloud = normalized !== checkpoint.current.percent;
+    checkpoint.current = { percent: normalized, page: current, pace: measured };
     setPercent(normalized);
-    saveCheckpoint(source, checkpoint.current);
+    saveCheckpoint(source, checkpoint.current, syncCloud);
   }, [source]);
 
   function onPage(current: number, count: number) {
     if (current < 1 || count < current) return;
     setPage(current);
     setTotal(count);
-    persist(current / count * 100, current);
+    persist(current / count * 100, current, count);
   }
 
   function go(delta: number) {
@@ -269,6 +309,20 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
   const ready = !error && (textMode ? epubReady : total > 0);
   const showControls = controls || !ready;
   const immersive = ready && !showControls;
+  const position = textMode ? percent / 100 : page / Math.max(1, total);
+  const displayPercent = textMode ? percent : Math.min(page === total ? 100 : 99, Math.round(position * 100));
+  const remaining = estimateRemaining(pace, position, textMode ? undefined : Math.max(0, total - page));
+
+  useEffect(() => {
+    if (ready && !lastReading.current) lastReading.current = { position, time: Date.now() };
+  }, [ready, position]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') lastReading.current = null;
+    });
+    return () => subscription.remove();
+  }, []);
 
   return (
     <SafeAreaView style={s.screen} edges={['top', 'right', 'bottom', 'left']}>
@@ -290,7 +344,7 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
           <ComicReader pages={pages} page={page} mode={mode} command={command} onPage={(current) => onPage(current, pages.length)} onTap={tapComic} />
         )}
         {!error && source?.format === 'cbr' && directory && !pages.length && (
-          <RarExtractor file={source.file} directory={directory} onComplete={showComic} onStatus={setStatus} onError={setError} />
+          <RarExtractor file={source.file} directory={directory} onComplete={(found) => showComic(found, source.localBook)} onStatus={setStatus} onError={setError} />
         )}
         {!error && textMode && !!html && (
           <WebView<object>
@@ -336,14 +390,18 @@ function ReadingSession({ id, uri, retry }: { id: string; uri?: string; retry: (
         )}
         {ready && showControls && (
           <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(140)} style={s.dock}>
-            <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: percent }} style={s.track}>
-              <View style={[s.fill, { width: `${percent}%` }]} />
+            <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: displayPercent }} style={s.track}>
+              <View style={[s.fill, { width: `${displayPercent}%` }]} />
+            </View>
+            <View style={s.stats}>
+              <Text style={s.statsPercent}>{displayPercent}% lido</Text>
+              <Text style={s.statsTime}>{remaining}</Text>
             </View>
             <View style={s.dockRow}>
               {textMode ? (
                 <>
                   <ReaderButton label="Diminuir fonte" glyph="A−" onPress={() => resizeText(-0.1)} disabled={fontScale <= 0.85} />
-                  <Text style={s.position}>{percent}% lido</Text>
+                  <Text style={s.position}>Tamanho do texto</Text>
                   <ReaderButton label="Aumentar fonte" glyph="A+" onPress={() => resizeText(0.1)} disabled={fontScale >= 1.6} />
                 </>
               ) : (
@@ -410,6 +468,9 @@ const s = StyleSheet.create({
     position: 'absolute', bottom: 8, zIndex: 2, width: '94%', maxWidth: 460, alignSelf: 'center',
     padding: 10, gap: 8, borderRadius: 20, borderWidth: 1, borderColor: palette.borderLight, backgroundColor: palette.background,
   },
+  stats: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  statsPercent: { color: palette.violetLight, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  statsTime: { color: palette.muted, fontSize: 13 },
   dockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   track: { height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: palette.surfaceLight },
   fill: { height: '100%', backgroundColor: palette.violet },

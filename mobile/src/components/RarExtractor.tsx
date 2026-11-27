@@ -8,7 +8,6 @@ import { toByteArray } from 'base64-js';
 
 const bundleAsset = require('../../assets/rar-reader.txt');
 const CHUNK_BYTES = 192 * 1024;
-const MAX_ARCHIVE_BYTES = 120 * 1024 * 1024;
 const allowedExtensions = /^(jpe?g|png|webp|gif|avif)$/;
 
 // Keep the initial WebView document small. The embedded WASM bundle is larger than a data URL can reliably carry.
@@ -31,6 +30,7 @@ const bootstrapHtml = `<!doctype html><html><head><meta charset="utf-8"><meta ht
 type Props = {
   file: File;
   directory: Directory;
+  coverOnly?: boolean;
   onStatus: (message: string) => void;
   onComplete: (pages: ReaderPage[]) => void;
   onError: (message: string) => void;
@@ -42,7 +42,7 @@ type Message =
   | { type: 'data'; value: string }
   | { type: 'end' };
 
-export default function RarExtractor({ file, directory, onStatus, onComplete, onError }: Props) {
+export default function RarExtractor({ file, directory, coverOnly = false, onStatus, onComplete, onError }: Props) {
   const [bundleReady, setBundleReady] = useState(false);
   const bundle = useRef({ code: '', offset: 0 });
   const webView = useRef<WebView<object>>(null);
@@ -78,10 +78,6 @@ export default function RarExtractor({ file, directory, onStatus, onComplete, on
     resetTimeout();
     void (async () => {
       try {
-        if (file.size > MAX_ARCHIVE_BYTES) {
-          fail('Este CBR ultrapassa o limite de 120 MB do leitor móvel.');
-          return;
-        }
         const asset = await Asset.fromModule(bundleAsset).downloadAsync();
         if (!asset.localUri) throw new Error('RAR bundle unavailable');
         const code = await new File(asset.localUri).text();
@@ -131,7 +127,7 @@ export default function RarExtractor({ file, directory, onStatus, onComplete, on
           if (remaining <= 0) {
             handle.close();
             reader.current = null;
-            send('extract');
+            send('extract', coverOnly ? 'cover' : undefined);
           } else {
             const bytes = await handle.readBytes(Math.min(remaining, CHUNK_BYTES));
             if (active.current && bytes.length) send('append', bytesToBase64(bytes));

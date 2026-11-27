@@ -3,7 +3,7 @@
     "name": "Librio",
     "slug": "librio",
     "scheme": "librio",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "icon": "./assets/librio-icon.png",
     "orientation": "default",
     "userInterfaceStyle": "dark",

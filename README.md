@@ -149,8 +149,9 @@ interrompe a publicação se algum estiver faltando.
 
 O repositório já tem o workflow
 [`desktop-release.yml`](./.github/workflows/desktop-release.yml). Ao receber
-uma tag começando com `v`, ele compila o instalador para Windows e publica os
-artefatos em GitHub Releases. O token `GITHUB_TOKEN` é fornecido pelo GitHub
+uma tag começando com `v`, ele compila o instalador Windows e o APK Android.
+Depois que os dois builds terminam, o workflow publica todos os arquivos em
+uma única release. O token `GITHUB_TOKEN` é fornecido pelo GitHub
 Actions; não é necessário criar ou salvar um token pessoal.
 
 Confirme também que o GitHub Actions está habilitado no repositório e que sua
@@ -192,12 +193,12 @@ permissão `contents: write` para publicar os artefatos.
    release. Substitua `main` se o branch principal do repositório tiver outro
    nome.
 
-4. No GitHub, abra **Actions** e acompanhe o workflow **Publish desktop
-   release**. Quando terminar, confira a release em
+4. No GitHub, abra **Actions** e acompanhe **Publish desktop and Android
+   releases**. Quando terminar, confira a release em
    <https://github.com/IcaroMatheusz/Librio/releases>.
 
-5. A release deve incluir o instalador `Librio Setup 0.1.0.exe` e os arquivos
-   de atualização gerados pelo electron-builder, como `latest.yml` e o
+5. A release inclui o instalador `Librio-Setup-0.1.0.exe`, o
+   `Librio-Android.apk` e os arquivos de atualização, como `latest.yml` e o
    `.blockmap`. Não remova esses arquivos: o `electron-updater` precisa dos
    metadados para encontrar e baixar as versões seguintes.
 
@@ -260,6 +261,29 @@ diretório; no iOS, arquivos são escolhidos individualmente. Os PDFs cloud abre
 no visualizador embutido. EPUBs e quadrinhos cloud são baixados e abertos em um
 leitor compatível instalado no aparelho; as posições de leitura detalhadas e o
 leitor interno desses formatos ainda precisam de um port nativo.
+
+### Wallpapers do aplicativo móvel
+
+Edite o objeto `wallpapers` em `mobile/src/config/wallpapers.ts`. As chaves
+`library`, `profile`, `volumes`, `login`, `register` e `recovery` correspondem
+à estante, edição de perfil, volumes, login, cadastro e redefinição de senha.
+Escolha uma chave de `wallpaperAssets` para cada tela. Para usar outra imagem,
+salve-a em `mobile/assets` e adicione seu `require(...)` a `wallpaperAssets`.
+
+| Chave | Arquivo | Largura × altura |
+| --- | --- | --- |
+| `nightwing` | `mobile/assets/nightwing_wallpaper.jpg` | 1170 × 2532 px |
+| `daredevil` | `mobile/assets/daredevil_wallpaper.jpg` | 1080 × 2160 px |
+| `fullmetal` | `mobile/assets/fullmetal_wallpaper.jpg` | 1200 × 1814 px |
+| `bleach` | `mobile/assets/bleach_wallpaper.jpg` | 818 × 1150 px |
+| `onePiece` | `src/assets/mobile/onepiece_wallpaper.jpg` | 568 × 1200 px |
+| `hellboy` | `src/assets/mobile/hellboy_wallpaper.jpg` | 1080 × 1434 px |
+
+As telas de autenticação usam a arte em tela cheia. Uma imagem vertical de
+1080 × 2160 px é uma boa base. Os banners recortam a mesma arte conforme a
+largura da tela e o `focalPoint` passado ao componente `WallpaperHero`.
+
+### Publicação das versões
 
 As versões desktop e Android são compiladas pelo workflow
 [`desktop-release.yml`](./.github/workflows/desktop-release.yml) ao enviar uma

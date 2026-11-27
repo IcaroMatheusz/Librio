@@ -3,13 +3,6 @@ import { Image, StyleSheet, View, type ImageSourcePropType } from 'react-native'
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { palette } from './atoms';
 
-export const wallpapers = {
-  library: require('../../assets/nightwing_wallpaper.jpg'),
-  profile: require('../../assets/daredevil_wallpaper.jpg'),
-  volumes: require('../../assets/fullmetal_wallpaper.jpg'),
-  auth: require('../../assets/bleach_wallpaper.jpg'),
-};
-
 export function WallpaperHero({ source, children, tall = false, focalPoint = 0.66 }: PropsWithChildren<{ source: ImageSourcePropType; tall?: boolean; focalPoint?: number }>) {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const dimensions = Image.resolveAssetSource?.(source);

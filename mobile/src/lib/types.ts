@@ -5,7 +5,17 @@ export type Book = {
 
 export const supportedFormats = ['pdf', 'epub', 'cbr', 'cbz'] as const;
 export type ReadingFormat = (typeof supportedFormats)[number];
-export type LocalBook = { uri: string; name: string; size: number; format: ReadingFormat; sourceUri?: string };
+export type LocalBook = {
+  uri: string;
+  name: string;
+  size: number;
+  format: ReadingFormat;
+  sourceUri?: string;
+  category?: string;
+  folder?: { uri: string; name: string };
+  customCover?: string;
+  removed?: boolean;
+};
 
 export function getReadingFormat(value: string | undefined) {
   return supportedFormats.find((format) => format === value?.toLowerCase());

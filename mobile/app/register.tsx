@@ -14,32 +14,36 @@ import { router } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { palette } from '../src/components/atoms';
 import { requireSupabase } from '../src/lib/supabase';
+import { AuthNotice } from '../src/components/AuthNotice';
+import { authFeedback, invalidEmail, validEmail, type AuthFeedback } from '../src/lib/authFeedback';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { wallpapers } from '../src/components/WallpaperHero';
+import { wallpapers } from '../src/config/wallpapers';
 
-const wallpaper = wallpapers.volumes;
+const wallpaper = wallpapers.register;
 const mascotIcon = require('../assets/librio-icon.png');
 
 export default function Register() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
+  const [feedback, setFeedback] = useState<AuthFeedback | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function submit() {
-    if (!username.trim() || !email.trim() || !password) {
-      setMessage('Por favor, preencha todos os campos.');
+    if (busy) return;
+    if (!username.trim()) {
+      setFeedback({ title: 'Informe seu nome', detail: 'Preencha o campo de nome completo para continuar.' });
       return;
     }
+    if (!validEmail(email)) { setFeedback(invalidEmail); return; }
     if (password.length < 6) {
-      setMessage('A senha deve ter pelo menos 6 caracteres.');
+      setFeedback({ title: 'A senha está curta', detail: 'Use pelo menos 6 caracteres e evite senhas fáceis de adivinhar.' });
       return;
     }
 
     setBusy(true);
-    setMessage('');
+    setFeedback(null);
     try {
       const { error } = await requireSupabase().auth.signUp({
         email: email.trim().toLowerCase(),
@@ -49,11 +53,9 @@ export default function Register() {
         },
       });
       if (error) throw error;
-      setMessage(
-        'Conta criada com sucesso! Confira seu e-mail para confirmar seu cadastro.'
-      );
+      setFeedback({ tone: 'success', title: 'Confira seu e-mail', detail: 'Se o endereço estiver disponível, você receberá um link para confirmar o cadastro. Se já tem conta, entre ou recupere sua senha.' });
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Não foi possível criar a conta.');
+      setFeedback(authFeedback('register', e));
     } finally {
       setBusy(false);
     }
@@ -65,6 +67,7 @@ export default function Register() {
       <SafeAreaView style={s.bgSafe}>
         <ScrollView
           contentContainerStyle={s.content}
+          automaticallyAdjustKeyboardInsets
           keyboardShouldPersistTaps="handled"
         >
           <View style={s.topbar}>
@@ -81,13 +84,14 @@ export default function Register() {
 
           <Animated.View entering={FadeInDown.duration(550)} style={s.card}>
             <Text style={s.title}>Crie sua conta</Text>
+            <AuthNotice feedback={feedback} />
 
             <View style={s.fieldGroup}>
               <Text style={s.label}>Seu nome completo</Text>
               <TextInput
                 style={s.input}
                 value={username}
-                onChangeText={setUsername}
+                onChangeText={(value) => { setUsername(value); setFeedback(null); }}
                 placeholder="Ex: Clara Mendes"
                 placeholderTextColor="#858BA0"
                 autoCapitalize="words"
@@ -99,7 +103,7 @@ export default function Register() {
               <TextInput
                 style={s.input}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value) => { setEmail(value); setFeedback(null); }}
                 placeholder="voce@email.com"
                 placeholderTextColor="#858BA0"
                 autoCapitalize="none"
@@ -112,7 +116,8 @@ export default function Register() {
               <TextInput
                 style={s.input}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(value) => { setPassword(value); setFeedback(null); }}
+                autoComplete="new-password"
                 placeholder="Mínimo 6 caracteres"
                 placeholderTextColor="#858BA0"
                 secureTextEntry
@@ -129,17 +134,6 @@ export default function Register() {
               </Text>
             </Pressable>
 
-            {!!message && (
-              <Text
-                style={[
-                  s.message,
-                  message.includes('sucesso') && s.messageSuccess,
-                ]}
-              >
-                {message}
-              </Text>
-            )}
-
             <View style={s.footer}>
               <Text style={s.footerText}>Já tem uma conta? </Text>
               <Pressable onPress={() => router.replace('/')}>
@@ -155,7 +149,7 @@ export default function Register() {
 
 const s = StyleSheet.create({
   bgSafe: { flex: 1 },
-  bg: { flex: 1, backgroundColor: palette.background },
+  bg: { flex: 1, overflow: 'hidden', backgroundColor: palette.background },
   shade: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(12, 10, 18, 0.67)',
@@ -248,16 +242,6 @@ const s = StyleSheet.create({
     color: '#1E192D',
     fontWeight: '900',
     fontSize: 14,
-  },
-  message: {
-    color: '#FFB9B9',
-    lineHeight: 20,
-    marginTop: 14,
-    fontSize: 12.5,
-    textAlign: 'center',
-  },
-  messageSuccess: {
-    color: '#A7F3D0',
   },
   footer: {
     flexDirection: 'row',

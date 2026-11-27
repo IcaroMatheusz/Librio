@@ -5,16 +5,28 @@ import { requireSupabase } from './supabase';
 export type Profile = { id: string; username: string; avatar_url: string | null; created_at: string };
 export type StorageInfo = { used_bytes: number; max_bytes: number };
 
+async function userStorage(userId: string): Promise<StorageInfo> {
+  const { data, error } = await requireSupabase().from('user_storage').select('used_bytes,max_bytes').eq('user_id', userId).maybeSingle();
+  if (error) throw error;
+  return data ?? { used_bytes: 0, max_bytes: 104857600 };
+}
+
+export async function getCloudStorage() {
+  const { data: { user }, error } = await requireSupabase().auth.getUser();
+  if (error) throw error;
+  if (!user) throw new Error('Sua sessão expirou. Entre novamente.');
+  return userStorage(user.id);
+}
+
 export async function getProfile(): Promise<{ profile: Profile; avatarUrl: string | null; storage: StorageInfo }> {
   const client = requireSupabase();
   const { data: { user } } = await client.auth.getUser();
   if (!user) throw new Error('Sua sessão expirou. Entre novamente.');
-  const [profileResult, storageResult] = await Promise.all([
+  const [profileResult, storage] = await Promise.all([
     client.from('profiles').select('id,username,avatar_url,created_at').eq('id', user.id).single(),
-    client.from('user_storage').select('used_bytes,max_bytes').eq('user_id', user.id).maybeSingle(),
+    userStorage(user.id),
   ]);
   if (profileResult.error) throw profileResult.error;
-  if (storageResult.error) throw storageResult.error;
   const avatarPath = profileResult.data.avatar_url;
   let avatarUrl: string | null = avatarPath;
   if (avatarPath && !avatarPath.startsWith('http')) {
@@ -22,7 +34,7 @@ export async function getProfile(): Promise<{ profile: Profile; avatarUrl: strin
     if (error) throw error;
     avatarUrl = data.signedUrl;
   }
-  return { profile: profileResult.data as Profile, avatarUrl, storage: storageResult.data ?? { used_bytes: 0, max_bytes: 104857600 } };
+  return { profile: profileResult.data as Profile, avatarUrl, storage };
 }
 
 export async function saveProfile(username: string, email: string, password: string) {

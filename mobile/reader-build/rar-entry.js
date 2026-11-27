@@ -4,7 +4,6 @@ import { startWorker } from '../node_modules/@bitplane/rars/browser/worker-engin
 import init, * as wasm from '../node_modules/@bitplane/rars/browser/wasm/rars_wasm.js';
 
 const wasmBase64 = '__LIBRIO_RAR_WASM_BASE64__';
-const outputLimit = 160 * 1024 * 1024;
 const workspaceLimit = 192 * 1024 * 1024;
 const chunkSize = 192 * 1024;
 const parts = [];
@@ -65,29 +64,24 @@ function encodeBase64(bytes) {
   return btoa(binary);
 }
 
-async function extract() {
+async function extract(mode) {
   let archive;
   try {
     const input = new Blob(parts);
     parts.length = 0;
     archive = await RarArchive.open(input, {
       maxHeaderCount: 20000,
-      maxTotalOutputBytes: outputLimit,
       maxReaderWorkspaceBytes: workspaceLimit,
     });
     const pages = archive.entries
       .filter((entry) => !entry.isDirectory && /\.(jpe?g|png|webp|gif|avif)$/i.test(entry.name))
       .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' }));
-    if (!pages.length || pages.length > 2000) throw new Error('Invalid page count');
-    let totalOutput = 0;
-    for (const page of pages) {
+    if (!pages.length) throw new Error('Empty archive');
+    for (const page of mode === 'cover' ? pages.slice(0, 1) : pages) {
       const image = await page.bytes({
-        maxMemberOutputBytes: 64 * 1024 * 1024,
-        maxTotalOutputBytes: outputLimit,
         maxReaderWorkspaceBytes: workspaceLimit,
       });
-      totalOutput += image.length;
-      if (!image.length || totalOutput > outputLimit) throw new Error('Invalid archive size');
+      if (!image.length) continue;
       await send('page', { extension: page.name.split('.').pop().toLowerCase(), total: pages.length });
       for (let offset = 0; offset < image.length; offset += chunkSize) {
         await send('data', { value: encodeBase64(image.subarray(offset, offset + chunkSize)) });

@@ -1,238 +1,145 @@
-import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  ImageBackground,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Linking from 'expo-linking';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { palette } from '../src/components/atoms';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Action, palette } from '../src/components/atoms';
+import { AuthNotice } from '../src/components/AuthNotice';
+import { wallpapers } from '../src/config/wallpapers';
+import { authFeedback, type AuthFeedback } from '../src/lib/authFeedback';
 import { requireSupabase } from '../src/lib/supabase';
 
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { wallpapers } from '../src/components/WallpaperHero';
+const invalidLink: AuthFeedback = {
+  title: 'O link de recuperação não pôde ser validado',
+  detail: 'Ele pode ter expirado ou já ter sido usado. Solicite outro link e abra o e-mail mais recente neste aparelho.',
+};
 
-const wallpaper = wallpapers.auth;
+async function verifyLink(code?: string, tokenHash?: string, fragment?: string) {
+  const { auth } = requireSupabase();
+  if (code) {
+    const { error } = await auth.exchangeCodeForSession(code);
+    if (error) throw error;
+    return;
+  }
+  if (tokenHash) {
+    const { error } = await auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' });
+    if (error) throw error;
+    return;
+  }
+  const params = new URLSearchParams(fragment);
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  if (!accessToken || !refreshToken || params.get('type') !== 'recovery') throw new Error('Missing recovery credentials');
+  const { error } = await auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+  if (error) throw error;
+}
 
 export default function ResetPassword() {
-  const { code, token_hash } = useLocalSearchParams<{
-    code?: string;
-    token_hash?: string;
-  }>();
+  const { code, token_hash: tokenHash } = useLocalSearchParams<{ code?: string; token_hash?: string }>();
+  const incoming = Linking.useLinkingURL();
+  const fragment = code || tokenHash ? undefined : incoming?.split('#')[1];
+  const verification = useRef<{ key: string; result: Promise<void> } | null>(null);
+  const [status, setStatus] = useState<'checking' | 'ready' | 'invalid' | 'done'>('checking');
   const [password, setPassword] = useState('');
-  const [ready, setReady] = useState(false);
-  const [checking, setChecking] = useState(true);
+  const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState('Validando o link de recuperação…');
+  const [feedback, setFeedback] = useState<AuthFeedback | null>(null);
 
   useEffect(() => {
     let active = true;
-    setReady(false);
-    setChecking(true);
-    void (async () => {
-      try {
-        const client = requireSupabase();
-        let exchangeError: Error | null = null;
-        if (code) {
-          const { error } = await client.auth.exchangeCodeForSession(code);
-          exchangeError = error;
-        } else if (token_hash) {
-          const { error } = await client.auth.verifyOtp({
-            token_hash,
-            type: 'recovery',
-          });
-          exchangeError = error;
-        } else {
-          const incoming = await Linking.getInitialURL();
-          const fragment = incoming?.split('#')[1];
-          if (fragment) {
-            const params = new URLSearchParams(fragment);
-            const access_token = params.get('access_token');
-            const refresh_token = params.get('refresh_token');
-            if (access_token && refresh_token) {
-              const { error } = await client.auth.setSession({
-                access_token,
-                refresh_token,
-              });
-              exchangeError = error;
-            }
-          }
-        }
-        if (exchangeError) throw exchangeError;
-        const { data } = await client.auth.getSession();
-        if (!data.session) {
-          throw new Error(
-            'Este link expirou. Solicite uma nova recuperação de senha na tela de login.'
-          );
-        }
-        if (active) {
-          setReady(true);
-          setMessage('Escolha uma nova senha para sua conta Librio.');
-        }
-      } catch (error) {
-        if (active) {
-          setMessage(
-            error instanceof Error
-              ? error.message
-              : 'Não foi possível validar o link de recuperação.'
-          );
-        }
-      } finally {
-        if (active) setChecking(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [code, token_hash]);
+    setStatus('checking');
+    setFeedback(null);
+
+    const key = code ? `code:${code}` : tokenHash ? `token:${tokenHash}` : `fragment:${fragment ?? ''}`;
+    if (verification.current?.key !== key) verification.current = { key, result: verifyLink(code, tokenHash, fragment) };
+    void verification.current.result.then(() => {
+      if (active) setStatus('ready');
+    }).catch((error) => {
+      if (!active) return;
+      const mapped = authFeedback('reset', error);
+      setFeedback(mapped.title === 'Não foi possível salvar a senha' ? invalidLink : mapped);
+      setStatus('invalid');
+    });
+
+    return () => { active = false; };
+  }, [code, fragment, tokenHash]);
 
   async function save() {
+    if (busy || status !== 'ready') return;
     if (password.length < 6) {
-      setMessage('Use uma senha com pelo menos seis caracteres.');
+      setFeedback({ title: 'A senha está curta', detail: 'Use pelo menos 6 caracteres.' });
+      return;
+    }
+    if (password !== confirmation) {
+      setFeedback({ title: 'As senhas digitadas estão diferentes', detail: 'Repita a nova senha no campo de confirmação.' });
       return;
     }
     setBusy(true);
+    setFeedback(null);
     try {
-      const { error } = await requireSupabase().auth.updateUser({ password });
+      const { auth } = requireSupabase();
+      const { error } = await auth.updateUser({ password });
       if (error) throw error;
-      setMessage('Senha atualizada com sucesso! Redirecionando para entrar…');
-      await requireSupabase().auth.signOut();
-      setTimeout(() => router.replace('/'), 1000);
+      setStatus('done');
+      setFeedback({ tone: 'success', title: 'Senha atualizada', detail: 'Use sua nova senha da próxima vez que entrar no Librio.' });
+      await auth.signOut({ scope: 'local' }).catch(() => {});
     } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : 'Não foi possível atualizar a senha.'
-      );
+      setFeedback(authFeedback('reset', error));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <ImageBackground source={wallpaper} resizeMode="cover" style={s.bg}>
+    <ImageBackground source={wallpapers.recovery} resizeMode="cover" style={s.background}>
       <View style={s.shade} />
-      <SafeAreaView style={s.bgSafe}>
-        <ScrollView
-          contentContainerStyle={s.content}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Pressable onPress={() => router.replace('/')} hitSlop={12}>
-            <Text style={s.back}>‹ Voltar ao login</Text>
-          </Pressable>
-
-          <Animated.View entering={FadeInDown.duration(500)} style={s.card}>
-            <Text style={s.title}>Nova senha</Text>
-            <Text style={s.description}>{message}</Text>
-
-            {ready ? (
-              <>
-                <Text style={s.label}>Nova senha</Text>
-                <TextInput
-                  style={s.input}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  autoComplete="new-password"
-                  placeholder="Pelo menos seis caracteres"
-                  placeholderTextColor={palette.muted}
-                />
-                <Pressable
-                  style={[s.button, busy && { opacity: 0.7 }]}
-                  onPress={() => void save()}
-                  disabled={busy}
-                >
-                  <Text style={s.buttonText}>
-                    {busy ? 'Salvando nova senha…' : 'Atualizar senha  →'}
-                  </Text>
-                </Pressable>
-              </>
-            ) : (
-              checking && <ActivityIndicator style={{ marginTop: 24 }} color={palette.violet} />
-            )}
-          </Animated.View>
-        </ScrollView>
+      <SafeAreaView style={s.safe}>
+        <KeyboardAvoidingView style={s.safe} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+            <Animated.View entering={FadeInDown.duration(300)} style={s.card}>
+              <Text accessibilityRole="header" style={s.title}>Redefinir senha</Text>
+              <AuthNotice feedback={feedback} />
+              {status === 'checking' && (
+                <View style={s.loading} accessibilityLiveRegion="polite">
+                  <ActivityIndicator color={palette.violet} />
+                  <Text style={s.copy}>Validando o link de recuperação…</Text>
+                </View>
+              )}
+              {status === 'ready' && (
+                <>
+                  <Text style={s.copy}>Escolha uma nova senha para sua conta Librio.</Text>
+                  <Text style={s.label}>Nova senha</Text>
+                  <TextInput accessibilityLabel="Nova senha" style={s.input} value={password} secureTextEntry autoComplete="new-password"
+                    onChangeText={(value) => { setPassword(value); setFeedback(null); }} />
+                  <Text style={s.label}>Confirmar nova senha</Text>
+                  <TextInput accessibilityLabel="Confirmar nova senha" style={s.input} value={confirmation} secureTextEntry autoComplete="new-password"
+                    onChangeText={(value) => { setConfirmation(value); setFeedback(null); }} onSubmitEditing={() => void save()} />
+                  <Action style={s.action} title={busy ? 'Salvando…' : 'Salvar nova senha'} disabled={busy} onPress={() => void save()} />
+                </>
+              )}
+              {status === 'invalid' && (
+                <Action style={s.action} title="Solicitar outro link" onPress={() => router.replace({ pathname: '/', params: { recover: '1' } })} />
+              )}
+              <Action style={s.action} title="Voltar ao login" quiet={status !== 'done'} onPress={() => router.replace('/')} />
+            </Animated.View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ImageBackground>
   );
 }
 
 const s = StyleSheet.create({
-  bgSafe: { flex: 1 },
-  bg: { flex: 1, backgroundColor: palette.background },
-  shade: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(12, 10, 18, 0.67)',
-  },
-  content: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 22,
-    paddingVertical: 36,
-    maxWidth: 480,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  back: {
-    color: '#E1D8FF',
-    fontWeight: '700',
-    marginBottom: 18,
-    fontSize: 13,
-  },
-  card: {
-    padding: 24,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: 'rgba(26, 22, 36, 0.96)',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    marginTop: 6,
-  },
-  description: {
-    fontSize: 13,
-    color: '#C7CAD5',
-    lineHeight: 20,
-    marginTop: 6,
-    marginBottom: 12,
-  },
-  label: {
-    color: '#E4E2EE',
-    fontWeight: '700',
-    fontSize: 12,
-    marginTop: 14,
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: 'rgba(15, 17, 28, 0.65)',
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 48,
-    color: '#FFFFFF',
-    fontSize: 14,
-  },
-  button: {
-    backgroundColor: palette.violet,
-    borderRadius: 14,
-    height: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 20,
-  },
-  buttonText: {
-    color: '#1E192D',
-    fontWeight: '900',
-    fontSize: 14,
-  },
+  background: { flex: 1, overflow: 'hidden', backgroundColor: palette.background },
+  safe: { flex: 1 },
+  shade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(12, 10, 18, .67)' },
+  content: { flexGrow: 1, justifyContent: 'center', padding: 22, width: '100%', maxWidth: 480, alignSelf: 'center' },
+  card: { padding: 23, borderRadius: 24, borderWidth: 1, borderColor: palette.borderLight, backgroundColor: palette.panel },
+  title: { color: palette.text, fontSize: 28, fontWeight: '900', marginBottom: 8 },
+  copy: { color: palette.textSecondary, fontSize: 14, lineHeight: 21 },
+  loading: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14 },
+  label: { color: palette.textSecondary, fontSize: 14, fontWeight: '700', marginTop: 12, marginBottom: 5 },
+  input: { backgroundColor: palette.background, color: palette.text, borderRadius: 12, minHeight: 48, paddingHorizontal: 12, borderWidth: 1, borderColor: palette.border },
+  action: { marginTop: 14 },
 });

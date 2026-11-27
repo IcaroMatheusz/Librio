@@ -1,7 +1,7 @@
 {
   "name": "librio",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "main": "dist-electron/electron/main.cjs",
   "scripts": {
@@ -60,7 +60,8 @@
       "package.json"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "mac": {
       "target": "dmg"

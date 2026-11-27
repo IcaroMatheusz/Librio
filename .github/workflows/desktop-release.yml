@@ -7,7 +7,11 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   windows:
@@ -26,12 +30,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish Windows installer with update metadata
+      - name: Build Windows installer and update metadata
         shell: pwsh
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_URL)) {
             throw "Configure o secret VITE_SUPABASE_URL nas configurações do repositório."
@@ -39,10 +42,21 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:VITE_SUPABASE_ANON_KEY)) {
             throw "Configure o secret VITE_SUPABASE_ANON_KEY nas configurações do repositório."
           }
-          npm run electron:dist -- --win --publish always
+          npm run electron:dist -- --win --publish never
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Store Windows release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            release/Librio-Setup-*.exe
+            release/Librio-Setup-*.exe.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          compression-level: 0
 
   android:
-    needs: windows
     runs-on: ubuntu-latest
 
     steps:
@@ -98,22 +112,53 @@ jobs:
           # running Metro server and fail on a standalone phone install.
           ./gradlew assembleRelease
 
-      - name: Ensure GitHub release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" \
-              --title "Librio $GITHUB_REF_NAME" \
-              --notes "Instaladores do Librio para esta versão."
-          fi
+      - name: Prepare signed APK
+        run: cp mobile/android/app/build/outputs/apk/release/app-release.apk Librio-Android.apk
 
-      - name: Attach APK to GitHub release
+      - name: Store Android release file
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: Librio-Android.apk
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    needs: [windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-release'
+          merge-multiple: true
+          path: release
+
+      - name: Publish complete release
+        working-directory: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APK_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk
-          APK_NAME: Librio-Android.apk
+          GH_REPO: ${{ github.repository }}
         run: |
-          test -f "$APK_PATH"
-          cp "$APK_PATH" "$APK_NAME"
-          gh release upload "$GITHUB_REF_NAME" "$APK_NAME" --clobber
+          version="${GITHUB_REF_NAME#v}"
+          installer="Librio-Setup-$version.exe"
+          files=("$installer" "$installer.blockmap" latest.yml Librio-Android.apk)
+          for file in "${files[@]}"; do
+            test -s "$file"
+          done
+          grep -Fq "path: $installer" latest.yml
+          checksum="$(openssl dgst -sha512 -binary "$installer" | openssl base64 -A)"
+          grep -Fq "sha512: $checksum" latest.yml
+
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+              --title "Librio $GITHUB_REF_NAME" \
+              --notes "Instaladores do Librio para Windows e Android."
+          fi
+          if [ "$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft)" = true ]; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          fi
+          gh release view "$GITHUB_REF_NAME" --json url,isDraft,assets
