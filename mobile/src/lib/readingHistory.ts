@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ReadingPace } from './readingPace';
 
-export type Checkpoint = { percent: number; page?: number; pace?: ReadingPace; lastReadAt?: number; hidden?: boolean; volumeId?: string };
+export type Checkpoint = {
+  percent: number; page?: number; epubWord?: number; pace?: ReadingPace; lastReadAt?: number; hidden?: boolean; volumeId?: string;
+};
 
 const writes = new Map<string, Promise<void>>();
 export const cloudProgressKey = (id: string) => `librio:cloud-progress:${id}`;
@@ -15,6 +17,7 @@ function parseCheckpoint(raw: string | null): Checkpoint {
     return {
       percent: boundPercent(saved.percent),
       page: Number.isInteger(saved.page) && saved.page > 0 ? saved.page : undefined,
+      ...(Number.isSafeInteger(saved.epubWord) && saved.epubWord >= 0 ? { epubWord: saved.epubWord } : {}),
       pace: pace && Number.isFinite(pace.seconds) && pace.seconds > 0 && Number.isFinite(pace.fraction) && pace.fraction > 0 ? pace : undefined,
       lastReadAt: Number.isFinite(saved.lastReadAt) ? saved.lastReadAt : undefined,
       hidden: saved.hidden === true,

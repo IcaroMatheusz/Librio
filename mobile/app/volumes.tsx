@@ -1,27 +1,12 @@
-import { useCallback, useState } from 'react';
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import {
-  Action,
-  Badge,
-  BookIcon,
-  Brand,
-  Heading,
-  palette,
-  Screen,
-  Surface,
-  useResponsiveLayout,
-} from '../src/components/atoms';
-import { getBooks } from '../src/lib/library';
+import { Badge, BookIcon, Heading, Screen, Surface, useResponsiveLayout } from '../src/components/atoms';
+import { AppSheet, useFeedback } from '../src/components/AppSheet';
+import { FormField } from '../src/components/AccountForm';
+import { LoadingIndicator } from '../src/components/Loading';
+import { LibraryButton, LibraryIconButton, libraryInk, libraryType, useLibraryTheme } from '../src/design/libraryTheme';
+import { getBookCoverUrl, getBooks } from '../src/lib/library';
 import { requireSupabase } from '../src/lib/supabase';
 import type { Book } from '../src/lib/types';
 
@@ -38,6 +23,11 @@ type Volume = {
 export default function Volumes() {
   const { isTablet, contentPadding, maxContentWidth } = useResponsiveLayout();
 
+  const { colors } = useLibraryTheme();
+  const notify = useFeedback();
+  const [loading, setLoading] = useState(true);
+  const [formError, setFormError] = useState('');
+  const [covers, setCovers] = useState<Record<string, string | null>>({});
   const [books, setBooks] = useState<Book[]>([]);
   const [volumes, setVolumes] = useState<Volume[]>([]);
   const [title, setTitle] = useState('');
@@ -79,12 +69,23 @@ export default function Volumes() {
         }))
       );
     } catch (e) {
-      Alert.alert(
+      notify(
         'Volumes indisponíveis',
         e instanceof Error ? e.message : 'Confira a configuração do Supabase.'
       );
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [notify]);
+
+  useEffect(() => {
+    let active = true;
+    const ids = new Set(volumes.map(v => v.chapters[0]?.book_id));
+    void Promise.all(books.filter(b => ids.has(b.id)).map(async book =>
+      [book.id, await getBookCoverUrl(book).catch(() => null)] as const
+    )).then(entries => { if (active) setCovers(Object.fromEntries(entries)); });
+    return () => { active = false; };
+  }, [books, volumes]);
 
   useFocusEffect(
     useCallback(() => {
@@ -93,18 +94,14 @@ export default function Volumes() {
   );
 
   async function create() {
+    if (busy) return;
+    setFormError('');
     if (selected.length < 2) {
-      Alert.alert(
-        'Selecione capítulos',
-        'Um volume precisa ter pelo menos duas obras selecionadas.'
-      );
+      setFormError('Um volume precisa ter pelo menos duas obras selecionadas.');
       return;
     }
     if (!title.trim()) {
-      Alert.alert(
-        'Dê um nome ao volume',
-        'Informe o título que será exibido na biblioteca.'
-      );
+      setFormError('Informe o título que será exibido na biblioteca.');
       return;
     }
     setBusy(true);
@@ -147,10 +144,7 @@ export default function Volumes() {
       setCreating(false);
       await load();
     } catch (e) {
-      Alert.alert(
-        'Não foi possível criar o volume',
-        e instanceof Error ? e.message : 'Tente novamente.'
-      );
+      setFormError(e instanceof Error ? e.message : 'Não foi possível criar o volume. Tente novamente.');
     } finally {
       setBusy(false);
     }
@@ -158,7 +152,7 @@ export default function Volumes() {
 
   async function remove(volume: Volume) {
     if (volume.chapters.length) {
-      Alert.alert(
+      notify(
         'Volume com obras vinculadas',
         'Para remover este volume, primeiro exclua as obras dos capítulos na biblioteca.'
       );
@@ -168,419 +162,87 @@ export default function Volumes() {
       .from('book_volumes')
       .delete()
       .eq('id', volume.id);
-    if (error) Alert.alert('Não foi possível excluir', error.message);
+    if (error) notify('Não foi possível excluir', error.message);
     else void load();
   }
 
-  return (
-    <Screen>
-      <ScrollView
-        contentContainerStyle={[
-          s.page,
-          {
-            paddingHorizontal: contentPadding,
-            maxWidth: maxContentWidth,
-            alignSelf: 'center',
-            width: '100%',
-          },
-        ]}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Navigation Bar */}
-        <View style={s.nav}>
-          <Pressable onPress={() => router.replace('/library')}>
-            <Brand />
-          </Pressable>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
-            <Text style={s.back}>‹ Voltar à biblioteca</Text>
-          </Pressable>
-        </View>
-
-        <WallpaperHero source={wallpapers.volumes} tall={isTablet}>
-          <Heading style={s.bannerTitle}>Volumes</Heading>
-          <Text style={s.bannerSubtitle}>Agrupe suas obras e escolha a ordem dos capítulos.</Text>
-        </WallpaperHero>
-
-        {/* Action Button */}
-        <Action
-          title={creating ? 'Fechar formulário de criação' : '＋ Montar um novo volume'}
-          onPress={() => setCreating(!creating)}
-          quiet
-        />
-
-        {/* Form Modal/Surface */}
-        {creating && (
-          <Animated.View entering={FadeInDown.duration(320)}>
-            <Surface style={s.formSurface} glow>
-              <Text style={s.formTitle}>Criar novo volume</Text>
-              <Text style={s.formDesc}>
-                Defina o nome da saga e selecione ao menos 2 obras da sua coleção para compor os capítulos.
-              </Text>
-
-              <Text style={s.label}>Título do volume</Text>
-              <TextInput
-                style={s.input}
-                value={title}
-                onChangeText={setTitle}
-                placeholder="Ex: Berserk - Era de Ouro"
-                placeholderTextColor={palette.muted}
-              />
-
-              <Text style={s.label}>Autor / Roteirista (opcional)</Text>
-              <TextInput
-                style={s.input}
-                value={author}
-                onChangeText={setAuthor}
-                placeholder="Ex: Kentaro Miura"
-                placeholderTextColor={palette.muted}
-              />
-
-              <Text style={s.pickLabel}>
-                Selecione as obras na ordem de leitura ({selected.length} selecionadas):
-              </Text>
-
-              {books.map((book) => {
-                const isChecked = selected.includes(book.id);
-                const orderIndex = selected.indexOf(book.id);
-                return (
-                  <Pressable
-                    key={book.id}
-                    style={[s.pickRow, isChecked && s.pickRowChecked]}
-                    onPress={() =>
-                      setSelected((prev) =>
-                        prev.includes(book.id)
-                          ? prev.filter((id) => id !== book.id)
-                          : [...prev, book.id]
-                      )
-                    }
-                  >
-                    <View style={[s.checkbox, isChecked && s.checked]}>
-                      {isChecked ? (
-                        <Text style={s.checkText}>{orderIndex + 1}</Text>
-                      ) : null}
-                    </View>
-                    <Text style={s.pickTitle} numberOfLines={1}>
-                      {book.title}
-                    </Text>
-                    <Badge
-                      label={book.file_type.toUpperCase()}
-                      variant={
-                        book.file_type.toLowerCase() === 'epub'
-                          ? 'amber'
-                          : book.file_type.toLowerCase() === 'pdf'
-                          ? 'emerald'
-                          : 'violet'
-                      }
-                    />
-                  </Pressable>
-                );
-              })}
-
-              <Action
-                title={busy ? 'Criando volume…' : 'Salvar volume'}
-                onPress={() => void create()}
-                disabled={busy}
-                style={{ marginTop: 16 }}
-              />
-            </Surface>
-          </Animated.View>
-        )}
-
-        {/* Empty state */}
-        {volumes.length === 0 && !creating && (
-          <Surface style={s.emptySurface}>
-            <View style={s.emptyIconWrap}>
-              <BookIcon size={32} color={palette.violetLight} />
+  const back = () => router.canGoBack() ? router.back() : router.replace('/library');
+  const closeForm = () => { if (!busy) setCreating(false); };
+  return <Screen>
+    <ScrollView contentContainerStyle={[s.page, { maxWidth: maxContentWidth, paddingHorizontal: contentPadding }]}>
+      <View style={s.row}>
+        <LibraryButton label="Biblioteca" icon="arrow-left" variant="quiet" onPress={back} />
+      </View>
+      <WallpaperHero source={wallpapers.volumes} tall={isTablet}>
+        <Text style={[libraryType.title, { color: libraryInk.white }]}>Meus volumes<Text style={{ color: libraryInk.yellow }}>.</Text></Text>
+        <Text style={[libraryType.body, { color: libraryInk.softOnHero }]}>Agrupe suas obras e escolha a ordem dos capítulos.</Text>
+      </WallpaperHero>
+      <View style={s.section}>
+        <Text accessibilityRole="header" style={[libraryType.section, s.grow, { color: colors.text }]}>{loading ? 'Coleção' : volumes.length === 1 ? '1 volume' : `${volumes.length} volumes`}</Text>
+        <LibraryButton label="Criar volume" icon="plus" onPress={() => { setFormError(''); setCreating(true); }} />
+      </View>
+      {loading ? <LoadingIndicator label="Carregando volumes…" /> : !volumes.length && <Surface style={s.empty}>
+        <BookIcon size={30} /><Heading>Sua coleção de volumes</Heading>
+        <Text style={[libraryType.body, s.center, { color: colors.secondary }]}>Escolha duas ou mais obras da estante para ler em sequência.</Text>
+      </Surface>}
+      {volumes.map(volume => {
+        const cover = covers[volume.chapters[0]?.book_id];
+        return <Surface key={volume.id} style={s.volume}>
+          <View style={s.row}>
+            <View style={[s.cover, { backgroundColor: colors.inset }]}>
+              {cover ? <Image source={{ uri: cover }} resizeMode="cover" style={StyleSheet.absoluteFill} /> : <BookIcon />}
             </View>
-            <Text style={s.emptyTitle}>Sua próxima saga começa aqui.</Text>
-            <Text style={s.empty}>
-              Agrupe PDFs, CBRs e CBZs em volumes e leia capítulo por capítulo sem sair do leitor.
-            </Text>
-          </Surface>
-        )}
-
-        {/* Existing Volumes */}
-        {volumes.map((volume, index) => (
-          <Animated.View
-            key={volume.id}
-            entering={FadeInDown.delay(index * 50).duration(320)}
-          >
-            <Surface style={s.volumeCard}>
-              <View style={s.volumeTop}>
-                <View style={s.volumeIconWrap}>
-                  <BookIcon size={20} color={palette.violetLight} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.volumeTitle}>{volume.title}</Text>
-                  <Text style={s.author}>
-                    {volume.author || 'Autor não informado'} • {volume.chapters.length} capítulo(s)
-                  </Text>
-                </View>
-                <Pressable
-                  hitSlop={12}
-                  onPress={() =>
-                    Alert.alert(
-                      'Excluir volume?',
-                      volume.chapters.length
-                        ? 'Exclua as obras dos capítulos na estante primeiro.'
-                        : 'Este volume será removido.',
-                      [
-                        { text: 'Cancelar', style: 'cancel' },
-                        {
-                          text: 'Excluir',
-                          style: 'destructive',
-                          onPress: () => void remove(volume),
-                        },
-                      ]
-                    )
-                  }
-                >
-                  <Text style={s.more}>•••</Text>
-                </Pressable>
-              </View>
-
-              <View style={s.divider} />
-
-              {volume.chapters.map((chapter) => {
-                const book = books.find((b) => b.id === chapter.book_id);
-                return (
-                  <Pressable
-                    key={chapter.book_id}
-                    style={s.chapter}
-                    onPress={() =>
-                      book &&
-                      router.push({
-                        pathname: '/reader/[id]',
-                        params: { id: book.id, volume: volume.id },
-                      })
-                    }
-                  >
-                    <View style={s.chapterNumberPill}>
-                      <Text style={s.number}>
-                        {String(chapter.chapter_number).padStart(2, '0')}
-                      </Text>
-                    </View>
-                    <Text style={s.chapterTitle} numberOfLines={1}>
-                      {chapter.title}
-                    </Text>
-                    {book && (
-                      <Badge
-                        label={book.file_type.toUpperCase()}
-                        variant="neutral"
-                      />
-                    )}
-                    <Text style={s.chevron}>›</Text>
-                  </Pressable>
-                );
-              })}
-            </Surface>
-          </Animated.View>
-        ))}
-      </ScrollView>
-    </Screen>
-  );
+            <View style={s.grow}>
+              <Text accessibilityRole="header" style={[libraryType.section, { color: colors.text }]}>{volume.title}</Text>
+              <Text style={[libraryType.caption, { color: colors.muted }]}>{[volume.author, volume.chapters.length === 1 ? '1 capítulo' : volume.chapters.length + ' capítulos'].filter(Boolean).join(' · ')}</Text>
+            </View>
+            <LibraryIconButton icon="trash-2" label={`Excluir ${volume.title}`} onPress={() => volume.chapters.length
+              ? void remove(volume)
+              : notify('Excluir volume?', `“${volume.title}” será removido da sua coleção.`, { label: 'Excluir', run: () => void remove(volume) })} />
+          </View>
+          {volume.chapters.map(chapter => {
+            const book = books.find(b => b.id === chapter.book_id);
+            return <Pressable key={chapter.book_id} accessibilityRole="button" disabled={!book}
+              onPress={() => book && router.push({ pathname: '/reader/[id]', params: { id: book.id, volume: volume.id } })}
+              style={({ pressed }) => [s.chapter, { borderColor: colors.border }, pressed && s.pressed]}>
+              <Text style={[libraryType.label, { color: colors.accent }]}>{String(chapter.chapter_number).padStart(2, '0')}</Text>
+              <Text style={[libraryType.body, s.grow, { color: colors.text }]}>{chapter.title}</Text>
+              {book && <Badge label={book.file_type.toUpperCase()} />}
+            </Pressable>;
+          })}
+        </Surface>;
+      })}
+    </ScrollView>
+    <AppSheet title="Criar volume" visible={creating} onClose={closeForm}>
+      <FormField label="Título do volume" value={title} onChangeText={setTitle} placeholder="Nome da coleção" />
+      <FormField label="Autor ou roteirista (opcional)" value={author} onChangeText={setAuthor} />
+      <Text style={[libraryType.body, { color: colors.secondary }]}>Selecione ao menos duas obras na ordem de leitura.</Text>
+      {books.map(book => {
+        const order = selected.indexOf(book.id);
+        return <Pressable key={book.id} accessibilityRole="checkbox" aria-checked={order >= 0} accessibilityState={{ checked: order >= 0 }} disabled={busy}
+          accessibilityLabel={book.title} onPress={() => setSelected(current => current.includes(book.id) ? current.filter(id => id !== book.id) : [...current, book.id])}
+          style={({ pressed }) => [s.pick, { backgroundColor: order >= 0 ? colors.accentSoft : colors.inset }, pressed && s.pressed]}>
+          <View style={[s.number, { borderColor: order >= 0 ? colors.accent : colors.controlBorder }]}>
+            {order >= 0 && <Text style={[libraryType.caption, { color: colors.accent }]}>{order + 1}</Text>}
+          </View>
+          <Text style={[libraryType.body, s.grow, { color: colors.text }]}>{book.title}</Text>
+          <Badge label={book.file_type.toUpperCase()} />
+        </Pressable>;
+      })}
+      {!!formError && <Text accessibilityLiveRegion="polite" style={[libraryType.body, { color: colors.danger }]}>{formError}</Text>}
+      <LibraryButton label={busy ? 'Criando volume…' : 'Salvar volume'} icon="check" disabled={busy} onPress={() => void create()} />
+    </AppSheet>
+  </Screen>;
 }
 
 const s = StyleSheet.create({
-  page: {
-    paddingTop: 10,
-    paddingBottom: 40,
-    gap: 16,
-  },
-  nav: {
-    height: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  back: {
-    color: palette.violetLight,
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  bannerTitle: {
-    fontSize: 26,
-    lineHeight: 30,
-    color: '#FFFFFF',
-  },
-  bannerSubtitle: {
-    color: '#D2CBDE',
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-  },
-  formSurface: {
-    padding: 20,
-  },
-  formTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  formDesc: {
-    color: palette.muted,
-    fontSize: 12,
-    marginTop: 4,
-    marginBottom: 12,
-  },
-  label: {
-    color: '#D8DAE4',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 10,
-    marginBottom: 6,
-  },
-  input: {
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: palette.background,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingHorizontal: 14,
-    color: '#FFFFFF',
-    fontSize: 13,
-  },
-  pickLabel: {
-    color: '#D3D5DF',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 18,
-    marginBottom: 8,
-  },
-  pickRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderBottomWidth: 1,
-    borderColor: palette.border,
-  },
-  pickRowChecked: {
-    backgroundColor: 'rgba(167,139,250,0.08)',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 1.5,
-    borderColor: '#666B7D',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checked: {
-    backgroundColor: palette.violet,
-    borderColor: palette.violet,
-  },
-  checkText: {
-    color: '#1E192D',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  pickTitle: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 12.5,
-    fontWeight: '700',
-  },
-  emptySurface: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 36,
-    paddingHorizontal: 20,
-    gap: 8,
-  },
-  emptyIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: 'rgba(167,139,250,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  emptyTitle: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 17,
-  },
-  empty: {
-    color: palette.muted,
-    fontSize: 12.5,
-    textAlign: 'center',
-    lineHeight: 19,
-    maxWidth: 320,
-  },
-  volumeCard: {
-    padding: 16,
-  },
-  volumeTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  volumeIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(167,139,250,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(167,139,250,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  volumeTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  author: {
-    color: palette.muted,
-    fontSize: 11,
-    marginTop: 3,
-  },
-  more: {
-    color: palette.violetLight,
-    fontSize: 16,
-    padding: 6,
-    fontWeight: '900',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: palette.border,
-    marginVertical: 12,
-  },
-  chapter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    gap: 10,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
-  },
-  chapterNumberPill: {
-    width: 28,
-    height: 24,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  number: {
-    color: palette.violetLight,
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  chapterTitle: {
-    color: '#E5E6ED',
-    fontWeight: '700',
-    fontSize: 12.5,
-    flex: 1,
-  },
-  chevron: {
-    fontSize: 20,
-    color: palette.violetLight,
-  },
+  page: { alignSelf: 'center', width: '100%', gap: 14, paddingTop: 6, paddingBottom: 32 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 }, grow: { flex: 1 },
+  section: { flexDirection: 'row', alignItems: 'center', gap: 8 }, empty: { alignItems: 'center', gap: 10, padding: 24 },
+  center: { textAlign: 'center', maxWidth: 340 }, volume: { gap: 8 },
+  cover: { width: 48, aspectRatio: 2 / 3, borderRadius: 5, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  chapter: { minHeight: 44, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: StyleSheet.hairlineWidth },
+  pick: { minHeight: 44, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 8 },
+  number: { minWidth: 24, minHeight: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: 6 },
+  pressed: { opacity: 0.78 },
 });

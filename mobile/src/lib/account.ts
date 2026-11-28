@@ -18,7 +18,7 @@ export async function getCloudStorage() {
   return userStorage(user.id);
 }
 
-export async function getProfile(): Promise<{ profile: Profile; avatarUrl: string | null; storage: StorageInfo }> {
+export async function getProfile(): Promise<{ profile: Profile; avatarUrl: string | null; storage: StorageInfo; email: string }> {
   const client = requireSupabase();
   const { data: { user } } = await client.auth.getUser();
   if (!user) throw new Error('Sua sessão expirou. Entre novamente.');
@@ -34,7 +34,7 @@ export async function getProfile(): Promise<{ profile: Profile; avatarUrl: strin
     if (error) throw error;
     avatarUrl = data.signedUrl;
   }
-  return { profile: profileResult.data as Profile, avatarUrl, storage };
+  return { profile: profileResult.data as Profile, avatarUrl, storage, email: user.email ?? '' };
 }
 
 export async function saveProfile(username: string, email: string, password: string) {

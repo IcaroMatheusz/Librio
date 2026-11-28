@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.view.HapticFeedbackConstants
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -26,6 +27,14 @@ class LibrioMediaModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("LibrioMedia")
+
+    Function("contextMenuHaptic") {
+      val activity = appContext.currentActivity
+      activity?.runOnUiThread {
+        activity.window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+      }
+      Unit
+    }
 
     Function("cancelComic") { jobId: String ->
       jobs[jobId]?.set(true)

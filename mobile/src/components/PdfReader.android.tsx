@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PixelRatio, Platform, StyleSheet, View } from 'react-native';
 import Pdf, { type PdfRef } from 'react-native-pdf';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { palette } from './atoms';
+import { libraryInk, useLibraryTheme } from '../design/libraryTheme';
 
 export type ReadingMode = 'page' | 'manga' | 'vertical';
 export type PdfReaderProps = {
@@ -22,6 +22,7 @@ export default function PdfReader(props: PdfReaderProps) {
 }
 
 function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, fade, onPage, onTap, onError }: PdfReaderProps) {
+  const { colors } = useLibraryTheme();
   const pdf = useRef<PdfRef>(null);
   const source = useMemo(() => ({ uri }), [uri]);
   const start = useRef({ page: initialPage, progress: initialProgress });
@@ -29,6 +30,7 @@ function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, 
   const totalPages = useRef(0);
   const lastCommand = useRef(command);
   const lastPage = useRef<number | null>(null);
+  const zoom = useRef(1);
   const [width, setWidth] = useState(0);
   const opacity = useSharedValue(1);
   const fadeStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
@@ -64,11 +66,13 @@ function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, 
         style={styles.pdf}
         trustAllCerts={false}
         enableDoubleTapZoom
+        minScale={1}
+        maxScale={4}
         enablePaging={!vertical}
         horizontal={!vertical}
         enableRTL={readingMode === 'manga'}
         fitPolicy={vertical ? 0 : 2}
-        renderActivityIndicator={() => <ActivityIndicator color={palette.violet} />}
+        renderActivityIndicator={() => <ActivityIndicator color={colors.accent} />}
         onLoadComplete={(total) => {
           const target = Math.max(1, Math.min(total, start.current.page ?? Math.round((total * start.current.progress) / 100)));
           totalPages.current = total;
@@ -84,7 +88,11 @@ function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, 
           waitingFor.current = null;
           display(mapPage(current, total), total);
         }}
-        onPageSingleTap={(_page, x) => onTap(Platform.OS === 'android' ? x / PixelRatio.get() : x, width)}
+        onScaleChanged={(scale) => { zoom.current = scale; }}
+        onPageSingleTap={(_page, x) => {
+          const position = Platform.OS === 'android' ? x / PixelRatio.get() : x;
+          onTap(zoom.current > 1.03 ? width / 2 : position, width);
+        }}
         onError={onError}
       />
       </Animated.View>
@@ -93,6 +101,6 @@ function PdfDocument({ uri, initialProgress, initialPage, readingMode, command, 
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: palette.reader },
-  pdf: { flex: 1, backgroundColor: palette.reader },
+  root: { flex: 1, backgroundColor: libraryInk.canvas },
+  pdf: { flex: 1, backgroundColor: libraryInk.canvas },
 });

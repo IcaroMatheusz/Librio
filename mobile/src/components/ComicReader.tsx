@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { type FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList as GestureFlatList, type NativeGesture } from 'react-native-gesture-handler';
+import { useSharedValue } from 'react-native-reanimated';
 import { Lucide } from '@react-native-vector-icons/lucide';
 import type { ReaderPage } from '../lib/reader';
 import type { ChapterDirection } from '../lib/chapterNavigation';
-import { palette } from '../config/colors';
+import { useLibraryTheme } from '../design/libraryTheme';
 import type { ReadingMode } from './PdfReader';
+import { ZoomableComicPage } from './ZoomableComicPage';
 
 type Props = {
   pages: ReaderPage[];
@@ -36,6 +38,7 @@ export default function ComicReader(props: Props) {
 }
 
 function ComicList({ pages, page, command, mode, fade, hasPrevious, hasNext, onPage, onTap, onChapter, width, height }: Props & { width: number; height: number }) {
+  const { colors } = useLibraryTheme();
   const vertical = mode === 'vertical';
   const manga = mode === 'manga';
   const list = useRef<FlatList<Item>>(null);
@@ -45,6 +48,10 @@ function ComicList({ pages, page, command, mode, fade, hasPrevious, hasNext, onP
   const lastCommand = useRef(command);
   const touched = useRef(false);
   const requestedPage = useRef<number | null>(null);
+  const [scrollGesture, setScrollGesture] = useState<NativeGesture>();
+  const [zoomed, setZoomed] = useState(false);
+  const scrollEnabled = useSharedValue(true);
+  const zoomOwner = useSharedValue(0);
 
   const data = useMemo<Item[]>(() => {
     const items = pages.map((image, index) => ({ image, number: index + 1 }));
@@ -71,6 +78,7 @@ function ComicList({ pages, page, command, mode, fade, hasPrevious, hasNext, onP
 
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 68, waitForInteraction: true }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: { index?: number | null }[] }) => {
+    if (!scrollEnabled.value) return;
     const index = viewableItems[0]?.index;
     const item = index != null ? callbacks.current.data[index] : undefined;
     if (!item) return;
@@ -86,13 +94,19 @@ function ComicList({ pages, page, command, mode, fade, hasPrevious, hasNext, onP
     lastCommand.current = command;
     touched.current = false;
     requestedPage.current = command.page;
+    setZoomed(false);
+    zoomOwner.value = 0;
+    scrollEnabled.value = true;
     const index = Number(leading) + (manga ? pages.length - command.page : command.page - 1);
     list.current?.scrollToOffset({ offset: layouts[index].offset, animated: true });
-  }, [command, layouts, leading, manga, pages.length]);
+  }, [command, layouts, leading, manga, pages.length, scrollEnabled, zoomOwner]);
 
   return (
-    <FlatList
+    <GestureFlatList<Item>
       ref={list}
+      enabled={scrollEnabled}
+      scrollEnabled={!zoomed}
+      onGestureUpdate_CAN_CAUSE_INFINITE_RERENDER={setScrollGesture}
       style={s.canvas}
       data={data}
       keyExtractor={(item) => 'image' in item ? item.image.uri : `chapter-${item.direction}`}
@@ -110,12 +124,13 @@ function ComicList({ pages, page, command, mode, fade, hasPrevious, hasNext, onP
       viewabilityConfig={viewabilityConfig}
       onViewableItemsChanged={onViewableItemsChanged}
       onScrollBeginDrag={() => {
+        if (zoomed) return;
         touched.current = true;
         requestedPage.current = null;
         list.current?.recordInteraction();
       }}
       onMomentumScrollEnd={(event) => {
-        if (vertical) return;
+        if (vertical || zoomed || !scrollEnabled.value) return;
         const index = Math.max(0, Math.min(data.length - 1, Math.round(event.nativeEvent.contentOffset.x / width)));
         const item = data[index];
         if ('image' in item) {
@@ -131,39 +146,24 @@ function ComicList({ pages, page, command, mode, fade, hasPrevious, hasNext, onP
           const before = item.direction === -1;
           const label = before ? 'Capítulo anterior' : 'Próximo capítulo';
           return (
-            <Pressable accessibilityRole="button" accessibilityLabel={label} style={[s.transition, frame]} onPress={() => onChapter(item.direction)}>
-              <Lucide name={before ? 'list-start' : 'list-end'} color={palette.violet} size={27} accessible={false} />
-              <Text style={s.transitionText}>{label}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={label} style={[s.transition, { backgroundColor: colors.surface }, frame]} onPress={() => onChapter(item.direction)}>
+              <Lucide name={before ? 'list-start' : 'list-end'} color={colors.accent} size={27} accessible={false} />
+              <Text style={[s.transitionText, { color: colors.text }]}>{label}</Text>
             </Pressable>
           );
         }
         return (
-          <Pressable accessibilityRole="button" accessibilityLabel={`Página ${item.number}. Mostrar controles`}
-            onPress={({ nativeEvent }) => onTap(nativeEvent.locationX, imageWidth)}
-            style={[s.page, frame, vertical && s.verticalPage]}>
-            <ComicImage uri={item.image.uri} fade={fade} />
-          </Pressable>
+          <ZoomableComicPage image={item.image} number={item.number} {...frame} vertical={vertical} fade={fade}
+            onTap={onTap} onZoomChange={setZoomed} zoomed={zoomed} zoomOwner={zoomOwner}
+            scrollEnabled={scrollEnabled} scrollGesture={scrollGesture} />
         );
       }}
     />
   );
 }
 
-function ComicImage({ uri, fade }: { uri: string; fade: boolean }) {
-  const opacity = useSharedValue(fade ? 0 : 1);
-  const animated = useAnimatedStyle(() => ({ opacity: opacity.value }));
-  useEffect(() => { if (!fade) opacity.value = 1; }, [fade, opacity]);
-
-  return <Animated.Image accessible={false} source={{ uri }} resizeMode="contain" fadeDuration={0}
-    onLoadEnd={() => { opacity.value = fade ? withTiming(1, { duration: 180 }) : 1; }}
-    style={[s.image, animated]} />;
-}
-
 const s = StyleSheet.create({
   canvas: { flex: 1 },
-  page: { alignSelf: 'center', backgroundColor: palette.reader },
-  verticalPage: { paddingBottom: 3 },
-  image: { width: '100%', height: '100%' },
-  transition: { alignSelf: 'center', backgroundColor: palette.reader, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  transitionText: { color: palette.violetLight, fontSize: 15, fontWeight: '800' },
+  transition: { alignSelf: 'center', alignItems: 'center', justifyContent: 'center', gap: 12 },
+  transitionText: { fontSize: 15, fontWeight: '800' },
 });

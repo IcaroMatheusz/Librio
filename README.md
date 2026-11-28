@@ -270,7 +270,7 @@ Edite o objeto `wallpapers` em `mobile/src/config/wallpapers.ts`. As chaves
 Escolha uma chave de `wallpaperAssets` para cada tela. Para usar outra imagem,
 salve-a em `mobile/assets` e adicione seu `require(...)` a `wallpaperAssets`.
 
-| Chave | Arquivo | Largura × altura |
+| Chave | Arquivo | Dimensões da imagem original |
 | --- | --- | --- |
 | `nightwing` | `mobile/assets/nightwing_wallpaper.jpg` | 1170 × 2532 px |
 | `daredevil` | `mobile/assets/daredevil_wallpaper.jpg` | 1080 × 2160 px |
@@ -278,10 +278,40 @@ salve-a em `mobile/assets` e adicione seu `require(...)` a `wallpaperAssets`.
 | `bleach` | `mobile/assets/bleach_wallpaper.jpg` | 818 × 1150 px |
 | `onePiece` | `src/assets/mobile/onepiece_wallpaper.jpg` | 568 × 1200 px |
 | `hellboy` | `src/assets/mobile/hellboy_wallpaper.jpg` | 1080 × 1434 px |
+| `spawnReading` | `mobile/assets/spawn-reading.webp` | 520 × 688 px |
 
-As telas de autenticação usam a arte em tela cheia. Uma imagem vertical de
-1080 × 2160 px é uma boa base. Os banners recortam a mesma arte conforme a
-largura da tela e o `focalPoint` passado ao componente `WallpaperHero`.
+#### Gabaritos dos banners
+
+As medidas dos cards abaixo estão em pontos lógicos (`dp`), com a largura
+disponível já descontando eventuais áreas seguras laterais. As alturas são
+mínimas e podem crescer quando o texto ocupa mais espaço.
+
+| Largura disponível | Estante | Volumes | Edição de perfil |
+| --- | --- | --- | --- |
+| Celular de 360 dp | 324 × 148 dp | 324 × 212 dp | 324 × 255 dp |
+| Celular de 390 dp | 354 × 148 dp | 354 × 212 dp | 354 × 255 dp |
+| Celular de 412 dp | 376 × 148 dp | 376 × 212 dp | 376 × 255 dp |
+| Tablet de 820 dp | 764 × 176 dp | 764 × 255 dp | 764 × 255 dp |
+| Tablet de 1120 dp ou mais | 1064 × 176 dp | 1064 × 255 dp | 1064 × 255 dp |
+
+Para compor a arte com base em um celular de 390 dp, exporte em 3×.
+Use **1062 × 444 px** para a estante, **1062 × 636 px** para os volumes e
+**1062 × 765 px** para o perfil. Na estante, deixe o assunto principal à
+direita e reserve o lado esquerdo para o título. O componente
+[`LibraryMasthead`](./mobile/src/components/LibraryBooks.tsx) posiciona a arte
+transparente de Spawn à direita. Ao escolher um wallpaper retangular, ele
+preenche todo o card com recorte central.
+
+O componente [`WallpaperHero`](./mobile/src/components/WallpaperHero.tsx)
+define as alturas de volumes e perfil. Posicione os elementos importantes
+acima da faixa inferior de texto. O parâmetro `focalPoint` move o recorte
+vertical do topo (`0`) ao rodapé (`1`). Volumes usa `0.66` e o perfil usa `0.75`.
+
+Login, cadastro e redefinição de senha exibem a arte num banner com **136 dp**
+de altura. Em um celular de 390 dp, o card mede **354 × 136 dp** (exportação a
+3× de **1062 × 408 px**). Em tablets, o card chega a **480 × 136 dp**. Deixe
+espaço à esquerda para a marca e concentre o assunto principal à direita.
+O formulário usa o tema selecionado em **Preferências de leitura → Aparência do aplicativo**.
 
 ### Publicação das versões
 

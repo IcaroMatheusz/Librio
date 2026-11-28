@@ -1,13 +1,14 @@
 import { Lucide } from '@react-native-vector-icons/lucide';
 import { Directory, File, Paths } from 'expo-file-system';
 import { router, useLocalSearchParams } from 'expo-router';
+import { libraryInk, themedStyles, useLibraryTheme } from '../../src/design/libraryTheme';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { Action, BookIcon, palette } from '../../src/components/atoms';
+import { Action, BookIcon } from '../../src/components/atoms';
 import ComicReader from '../../src/components/ComicReader';
 import PdfReader, { type ReadingMode } from '../../src/components/PdfReader';
 import RarExtractor from '../../src/components/RarExtractor';
@@ -22,6 +23,9 @@ import { adjacentChapters, pageStep, positionInChapter, type ChapterDirection, t
 import { boundPercent, cloudProgressKey, readCheckpoint, recordReading, type Checkpoint } from '../../src/lib/readingHistory';
 import { IconButton } from '../../src/components/IconButton';
 import { useReaderSettings } from '../../src/components/ReaderSettings';
+import { LoadingIndicator } from '../../src/components/Loading';
+import { PagePicker } from '../../src/components/PagePicker';
+import type { RsvpSettings } from '../../src/lib/rsvpSettings';
 
 type Source = { file: File; format: ReadingFormat; title: string; key: string; cloudId?: string; localBook?: LocalBook };
 type Target = { id: string; uri?: string; volume?: string };
@@ -72,7 +76,7 @@ async function loadCheckpoint(source: Source) {
   if (!source.cloudId) return device;
   await cloudProgressWrites.get(source.key);
   const cloud = boundPercent(await getBookProgress(source.cloudId).catch(() => device.percent));
-  return cloud === device.percent ? device : { ...device, percent: cloud, page: undefined };
+  return cloud === device.percent ? device : { ...device, percent: cloud, page: undefined, epubWord: undefined };
 }
 
 function saveCheckpoint(source: Source, checkpoint: Checkpoint, syncCloud: boolean) {
@@ -106,6 +110,8 @@ function ReaderSequence({ initial }: { initial: Target }) {
 
 function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMode, fontScale, setFontScale, controls, setControls }:
   Target & ReadingControls & { edge?: ChapterEdge; retry: () => void; openChapter: (target: Target, edge: ChapterEdge) => void }) {
+  const s = useStyles();
+  const { mode: appearance, colors } = useLibraryTheme();
   const [source, setSource] = useState<Source | null>(null);
   const [recover, setRecover] = useState<LocalBook | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
@@ -118,10 +124,11 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
   const [directory, setDirectory] = useState<Directory | null>(null);
   const [html, setHtml] = useState('');
   const [epubReady, setEpubReady] = useState(false);
-  const { enabled: fade, open: openPreferences } = useReaderSettings();
+  const [rsvpActive, setRsvpActive] = useState(false);
+  const { enabled: fade, open: openPreferences, rsvp, setRsvp } = useReaderSettings();
   const initialFont = useRef(fontScale).current;
   const [percent, setPercent] = useState(0);
-  const [epubStats, setEpubStats] = useState({ words: 0, screens: 1 });
+  const [epubStats, setEpubStats] = useState({ words: 0, screens: 1, screen: 1 });
   const [chapters, setChapters] = useState<Chapters>({ index: -1, count: 0 });
   const moving = useRef(false);
   const displayedPage = useRef<number | null>(null);
@@ -129,6 +136,12 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
   const [pace, setPace] = useState<ReadingPace>({ seconds: 0, fraction: 0 });
   const lastReading = useRef<{ position: number; time: number } | null>(null);
   const epub = useRef<WebView<object>>(null);
+  const epubTheme = `document.documentElement.dataset.theme = ${JSON.stringify(appearance)};true;`;
+  useEffect(() => {
+    if (epubReady) epub.current?.injectJavaScript(epubTheme);
+  }, [epubReady, epubTheme]);
+  const epubSource = useMemo(() => ({ html }), [html]);
+  const rsvpRunning = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -206,7 +219,7 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
         if (opened.format === 'epub') {
           setStatus('Preparando o texto…');
           const start = edge === 'start' ? 0 : edge === 'end' ? 100 : saved.percent;
-          const content = await readEpubHtml(opened.file.uri, initialFont, start, extraction.signal);
+          const content = await readEpubHtml(opened.file.uri, initialFont, start, extraction.signal, edge ? undefined : saved.epubWord);
           if (active) setHtml(content);
           return;
         }
@@ -264,14 +277,15 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
     if (localBook && found[0]) void saveAutomaticCover(localBook, new File(found[0].uri)).catch(() => {});
   }
 
-  const persist = useCallback((value: number, current?: number, count = 0) => {
+  const persist = useCallback((value: number, current?: number, count = 0, word?: number) => {
     if (!source || moving.current || !Number.isFinite(value)) return;
     const normalized = boundPercent(value < 100 ? Math.min(99, value) : 100);
     const position = Math.max(0, Math.min(1, value / 100));
     const time = Date.now();
     const previous = lastReading.current;
     let measured = checkpoint.current.pace;
-    if (!previous || previous.position !== position) {
+    if (rsvpRunning.current) lastReading.current = null;
+    else if (!previous || previous.position !== position) {
       lastReading.current = { position, time };
       if (previous) {
         const baseline = measured ?? { seconds: 0, fraction: 0 };
@@ -279,9 +293,10 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
         if (sample !== baseline) { measured = sample; setPace(sample); }
       }
     }
-    if (normalized === checkpoint.current.percent && current === checkpoint.current.page && measured === checkpoint.current.pace) return;
+    if (normalized === checkpoint.current.percent && current === checkpoint.current.page && word === checkpoint.current.epubWord
+      && measured === checkpoint.current.pace) return;
     const syncCloud = normalized !== checkpoint.current.percent;
-    checkpoint.current = { percent: normalized, page: current, pace: measured, lastReadAt: Date.now(), volumeId: volume };
+    checkpoint.current = { percent: normalized, page: current, epubWord: word, pace: measured, lastReadAt: Date.now(), volumeId: volume };
     setPercent(position * 100);
     saveCheckpoint(source, checkpoint.current, syncCloud);
   }, [source, volume]);
@@ -310,8 +325,18 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
       crossChapter(direction);
       return;
     }
+    showPage(next);
+  }
+
+  function showPage(next: number) {
     onPage(next, total);
     setCommand({ page: next });
+  }
+
+  function jumpToPage(next: number) {
+    lastReading.current = null;
+    if (textMode) epub.current?.injectJavaScript(`window.LibrioJumpToScreen?.(${next});true;`);
+    else showPage(next);
   }
 
   function tapPage(x: number, width: number) {
@@ -326,16 +351,25 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
     if (moving.current) return;
     try {
       const message = JSON.parse(event.nativeEvent.data);
-      if (message.type === 'ready') {
-        setEpubStats({ words: message.words, screens: message.screens });
-        setEpubReady(true);
-      }
       if (message.type === 'tap') setControls((value) => !value);
       if (message.type === 'boundary' && (message.direction === -1 || message.direction === 1)) crossChapter(message.direction);
-      if (message.type === 'progress' && typeof message.progress === 'number' && Number.isFinite(message.progress)) {
-        setEpubStats((current) => ({ ...current, screens: message.screens }));
-        setPercent(message.progress);
-        persist(message.progress);
+      if (message.type === 'rsvp-settings') setRsvp(message as Partial<RsvpSettings>);
+      if (message.type === 'rsvp-mode') {
+        rsvpRunning.current = message.active === true;
+        setRsvpActive(rsvpRunning.current);
+        lastReading.current = null;
+      }
+      if ((message.type === 'ready' || message.type === 'progress') && Number.isFinite(message.progress)
+        && Number.isSafeInteger(message.screens) && message.screens > 0
+        && Number.isSafeInteger(message.screen) && message.screen > 0 && message.screen <= message.screens
+        && Number.isSafeInteger(message.words) && message.words >= 0) {
+        setEpubStats((current) => current.screens === message.screens && current.screen === message.screen && current.words === message.words
+          ? current : { words: message.words, screens: message.screens, screen: message.screen });
+        const progress = Math.min(100, Math.max(0, message.progress));
+        setPercent(progress);
+        const word = Number.isSafeInteger(message.word) && message.word >= 0 && message.word < message.words ? message.word : undefined;
+        if (message.type === 'ready') setEpubReady(true);
+        else persist(progress, undefined, 0, word);
       }
     } catch { /* Ignore unrelated messages. */ }
   }
@@ -365,7 +399,7 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
 
   const textMode = source?.format === 'epub';
   const ready = !error && (textMode ? epubReady : total > 0);
-  const showControls = controls || !ready;
+  const showControls = !rsvpActive && (controls || !ready);
   const immersive = ready && !showControls;
   const position = textMode ? percent / 100 : page / Math.max(1, total);
   const displayPercent = Math.min(position >= 1 ? 100 : 99, Math.round(position * 100));
@@ -373,7 +407,7 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
   const canGoBack = page > 1 || !!chapters.previous;
   const canGoNext = page < total || !!chapters.next;
   const chapterBefore = textMode ? percent <= 1 && !!chapters.previous : page <= 1;
-  const chapterAfter = textMode ? percent >= 99 && !!chapters.next : page >= total;
+  const chapterAfter = textMode ? (percent >= 99 || epubStats.screens === 1) && !!chapters.next : page >= total;
   const presentedOnce = useRef(false);
 
   useEffect(() => {
@@ -382,25 +416,41 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
     const saved = checkpoint.current;
     const firstPosition = edge !== 'end' && (saved.percent === 0 || edge === 'start');
     const opening = { ...saved, hidden: false, lastReadAt: Date.now(), volumeId: volume ?? saved.volumeId,
-      ...(firstPosition ? { percent: displayPercent, page: textMode ? undefined : page } : {}) };
+      ...(firstPosition ? { percent: displayPercent, page: textMode ? undefined : page, epubWord: edge === 'start' ? undefined : saved.epubWord } : {}) };
     checkpoint.current = opening;
     saveCheckpoint(source, opening, firstPosition && opening.percent !== saved.percent);
   }, [source, ready, displayPercent, page, textMode, edge, volume]);
 
   useEffect(() => {
-    if (ready && !lastReading.current) lastReading.current = { position, time: Date.now() };
-  }, [ready, position]);
+    if (ready && !rsvpActive && !lastReading.current) lastReading.current = { position, time: Date.now() };
+  }, [ready, position, rsvpActive]);
+
+  useEffect(() => {
+    if (epubReady) epub.current?.injectJavaScript(`window.LibrioRsvpSettings?.(${JSON.stringify(rsvp)});true;`);
+  }, [epubReady, rsvp]);
+
+  useEffect(() => {
+    if (!rsvpActive) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      epub.current?.injectJavaScript('window.LibrioRsvpClose?.();true;');
+      return true;
+    });
+    return () => subscription.remove();
+  }, [rsvpActive]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') lastReading.current = null;
+      if (state !== 'active') {
+        lastReading.current = null;
+        if (rsvpRunning.current) epub.current?.injectJavaScript('window.LibrioRsvpPause?.();true;');
+      }
     });
     return () => subscription.remove();
   }, []);
 
   return (
     <SafeAreaView style={s.screen} edges={['top', 'right', 'bottom', 'left']}>
-      <StatusBar style="light" hidden={immersive} animated />
+      <StatusBar style={appearance === 'dark' ? 'light' : 'dark'} hidden={immersive} />
       <View style={s.canvas}>
         {!error && source?.format === 'pdf' && (
           <PdfReader
@@ -426,10 +476,13 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
           <Animated.View entering={fade ? FadeIn.duration(180) : undefined} style={s.web}>
           <WebView<object>
             ref={epub}
-            source={{ html }}
+            source={epubSource}
+            injectedJavaScriptBeforeContentLoaded={epubTheme}
+            onLoadEnd={() => epub.current?.injectJavaScript(epubTheme)}
             style={s.web}
             originWhitelist={['*']}
             allowFileAccess={false}
+            setBuiltInZoomControls
             setSupportMultipleWindows={false}
             onShouldStartLoadWithRequest={({ url }) => url === 'about:blank' || url.startsWith('about:blank#')}
             onError={() => setError('Não foi possível exibir este EPUB.')}
@@ -449,10 +502,7 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
                 <Action title="Voltar" quiet onPress={back} />
               </View>
             ) : (
-              <View style={s.message} accessibilityLiveRegion="polite">
-                <ActivityIndicator color={palette.violetLight} size="large" />
-                <Text style={s.messageCopy}>{status}</Text>
-              </View>
+              <LoadingIndicator label={status} />
             )}
           </Animated.View>
         )}
@@ -473,16 +523,17 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
         )}
         {ready && showControls && (
           <Animated.View entering={fade ? FadeIn.duration(180) : undefined} exiting={fade ? FadeOut.duration(140) : undefined} style={s.dock}>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.dockContent}>
             <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: displayPercent }} style={s.track}>
               <View style={[s.fill, { width: `${displayPercent}%` }]} />
             </View>
             <View style={s.stats}>
               <View style={s.stat}>
-                <Lucide name="book-open" color={palette.violetLight} size={15} accessible={false} />
+                <Lucide name="book-open" color={colors.accent} size={15} accessible={false} />
                 <Text style={s.statsPercent}>{displayPercent}% lido</Text>
               </View>
               <View style={s.stat}>
-                <Lucide name="clock-3" color={palette.violetLight} size={15} accessible={false} />
+                <Lucide name="clock-3" color={colors.accent} size={15} accessible={false} />
                 <View>
                   <Text style={s.statsTime}>{estimate.time}</Text>
                   {!!estimate.basis && <Text style={s.estimateBasis}>{estimate.basis}</Text>}
@@ -493,7 +544,7 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
               {textMode ? (
                 <>
                   <IconButton icon="minus" label="Diminuir fonte" onPress={() => resizeText(-0.1)} disabled={fontScale <= 0.85} />
-                  <Text style={s.position}>Tamanho do texto</Text>
+                  <PagePicker page={epubStats.screen} total={epubStats.screens} screen onSelect={jumpToPage} />
                   <IconButton icon="plus" label="Aumentar fonte" onPress={() => resizeText(0.1)} disabled={fontScale >= 1.6} />
                 </>
               ) : (
@@ -501,13 +552,16 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
                   <IconButton label={chapterBefore && canGoBack ? 'Capítulo anterior' : 'Página anterior'}
                     icon={chapterBefore && canGoBack ? 'list-start' : mode === 'manga' ? 'chevron-right' : 'chevron-left'}
                     onPress={() => go(-1)} disabled={!canGoBack} />
-                  <Text style={s.position}>{page} / {total}</Text>
+                  <PagePicker page={page} total={total} onSelect={jumpToPage} />
                   <IconButton label={chapterAfter && canGoNext ? 'Próximo capítulo' : 'Próxima página'}
                     icon={chapterAfter && canGoNext ? 'list-end' : mode === 'manga' ? 'chevron-left' : 'chevron-right'}
                     onPress={() => go(1)} disabled={!canGoNext} />
                 </>
               )}
             </View>
+            {textMode && epubStats.words > 0 && (
+              <Action quiet title="Leitura rápida (RSVP)" onPress={() => epub.current?.injectJavaScript('window.LibrioRsvpOpen?.();true;')} />
+            )}
             {textMode && (chapterBefore || chapterAfter) && (
               <View style={s.chapterActions}>
                 {chapterBefore && <Action title="Capítulo anterior" quiet onPress={() => crossChapter(-1)} />}
@@ -529,6 +583,7 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
                 ))}
               </View>
             )}
+            </ScrollView>
           </Animated.View>
         )}
       </View>
@@ -536,39 +591,39 @@ function ReadingSession({ id, uri, volume, edge, retry, openChapter, mode, setMo
   );
 }
 
-const s = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: palette.reader },
-  canvas: { flex: 1, position: 'relative' },
-  web: { flex: 1, backgroundColor: palette.reader },
+const useStyles = themedStyles(colors => StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.background },
+  canvas: { flex: 1, position: 'relative', backgroundColor: libraryInk.canvas },
+  web: { flex: 1, backgroundColor: colors.background },
   header: {
     position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2,
-    backgroundColor: palette.background, borderBottomWidth: 1, borderBottomColor: palette.border,
+    backgroundColor: colors.background, borderBottomWidth: 1, borderBottomColor: colors.border,
     flexDirection: 'row', alignItems: 'center', gap: 7, padding: 10,
   },
   titleGroup: { flex: 1 },
-  title: { color: palette.text, fontSize: 17, fontWeight: '800' },
-  meta: { color: palette.muted, fontSize: 12, marginTop: 3 },
+  title: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  meta: { color: colors.muted, fontSize: 12, marginTop: 3 },
   dock: {
     position: 'absolute', bottom: 8, zIndex: 2, width: '94%', maxWidth: 460, alignSelf: 'center',
-    padding: 10, gap: 8, borderRadius: 20, borderWidth: 1, borderColor: palette.borderLight, backgroundColor: palette.background,
+    maxHeight: '72%', overflow: 'hidden', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.raised,
   },
+  dockContent: { padding: 10, gap: 8 },
   stats: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  statsPercent: { color: palette.violetLight, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  statsPercent: { color: colors.accent, fontWeight: '800', fontVariant: ['tabular-nums'] },
   stat: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  statsTime: { color: palette.textSecondary, fontSize: 13, fontWeight: '700' },
-  estimateBasis: { color: palette.mutedDark, fontSize: 10, marginTop: 2 },
+  statsTime: { color: colors.secondary, fontSize: 13, fontWeight: '700' },
+  estimateBasis: { color: colors.muted, fontSize: 10, marginTop: 2 },
   chapterActions: { flexDirection: 'row', justifyContent: 'space-around', gap: 8, flexWrap: 'wrap' },
   dockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  track: { height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: palette.surfaceLight },
-  fill: { height: '100%', backgroundColor: palette.violet },
-  position: { color: palette.text, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  modes: { flexDirection: 'row', gap: 3, backgroundColor: palette.surface, borderRadius: 12, padding: 3 },
+  track: { height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: colors.track },
+  fill: { height: '100%', backgroundColor: colors.accent },
+  modes: { flexDirection: 'row', gap: 3, backgroundColor: colors.surface, borderRadius: 12, padding: 3 },
   mode: { flex: 1, minHeight: 44, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
-  modeSelected: { backgroundColor: palette.violet },
-  modeLabel: { color: palette.muted, fontSize: 13, fontWeight: '700' },
-  modeLabelSelected: { color: palette.onAccent },
-  messageLayer: { ...StyleSheet.absoluteFill, backgroundColor: palette.reader, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  modeSelected: { backgroundColor: colors.accentSoft },
+  modeLabel: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  modeLabelSelected: { color: colors.accent },
+  messageLayer: { ...StyleSheet.absoluteFill, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 24 },
   message: { gap: 12, width: '100%', maxWidth: 420, alignItems: 'center', paddingVertical: 18 },
-  messageTitle: { color: palette.text, fontSize: 25, fontWeight: '800', textAlign: 'center' },
-  messageCopy: { color: palette.muted, fontSize: 15, lineHeight: 23, textAlign: 'center' },
-});
+  messageTitle: { color: colors.text, fontSize: 25, fontWeight: '800', textAlign: 'center' },
+  messageCopy: { color: colors.muted, fontSize: 15, lineHeight: 23, textAlign: 'center' },
+}));

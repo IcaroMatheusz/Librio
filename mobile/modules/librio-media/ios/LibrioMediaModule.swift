@@ -6,6 +6,12 @@ public class LibrioMediaModule: Module {
   public func definition() -> ModuleDefinition {
     Name("LibrioMedia")
 
+    Function("contextMenuHaptic") {
+      DispatchQueue.main.async {
+        UISelectionFeedbackGenerator().selectionChanged()
+      }
+    }
+
     AsyncFunction("renderPdfCover") { (input: URL, output: URL) in
       let source = try self.privateURL(input)
       let destination = try self.privateURL(output)

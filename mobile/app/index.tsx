@@ -1,34 +1,19 @@
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Linking from 'expo-linking';
-import Animated, { FadeIn, FadeInDown, FadeInUp, FadeOut } from 'react-native-reanimated';
 import type { Session } from '@supabase/supabase-js';
 import { requireSupabase } from '../src/lib/supabase';
-import { Action, BookIcon, palette } from '../src/components/atoms';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AccountForm, FormField } from '../src/components/AccountForm';
+import { AppSheet } from '../src/components/AppSheet';
+import { LoadingIndicator } from '../src/components/Loading';
+import { LibraryButton, libraryType, useLibraryTheme } from '../src/design/libraryTheme';
 import { wallpapers } from '../src/config/wallpapers';
-
 import { AuthNotice } from '../src/components/AuthNotice';
 import { authFeedback, invalidEmail, validEmail, type AuthFeedback } from '../src/lib/authFeedback';
 
-const wallpaper = wallpapers.login;
-const mascotIcon = require('../assets/librio-icon.png');
-
 export default function SignIn() {
+  const { colors } = useLibraryTheme();
   const { recover: recoverParam } = useLocalSearchParams<{ recover?: string }>();
   const [session, setSession] = useState<Session | null>(null);
   const [email, setEmail] = useState('');
@@ -107,352 +92,34 @@ export default function SignIn() {
     }
   }
 
-  if (session) {
-    return (
-      <View style={s.loading}>
-        <Image source={mascotIcon} style={s.splashMascot} />
-        <Text style={s.brand}>
-          Librio<Text style={s.dot}>.</Text>
-        </Text>
-        <Text style={s.sub}>Carregando sua estante…</Text>
-      </View>
-    );
-  }
-
+  if (session) return <View style={[s.loading, { backgroundColor: colors.background }]}><LoadingIndicator label="Carregando sua estante…" /></View>;
   return (
-    <ImageBackground source={wallpaper} resizeMode="cover" style={s.background}>
-      <View style={s.shade} />
-      <SafeAreaView style={s.flex}>
-        <KeyboardAvoidingView
-          style={s.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
-            contentContainerStyle={s.content}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Brand Mascot & Logo */}
-            <Animated.View entering={FadeInUp.duration(700)} style={s.brandBlock}>
-              <View style={s.logoWrapper}>
-                <Image source={mascotIcon} style={s.logoImg} resizeMode="cover" />
-              </View>
-              <Text style={s.brand}>
-                Librio<Text style={s.dot}>.</Text>
-              </Text>
-            </Animated.View>
-
-            {/* Login Card */}
-            <Animated.View
-              entering={FadeInDown.delay(120).duration(600)}
-              style={s.card}
-            >
-              <Text style={s.title}>Entrar no Librio</Text>
-              <AuthNotice feedback={error} />
-
-              <Text style={s.label}>E-mail</Text>
-              <TextInput
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoComplete="email"
-                style={s.input}
-                value={email}
-                onChangeText={(value) => { setEmail(value); setError(null); }}
-                placeholder="voce@email.com"
-                placeholderTextColor="#777D92"
-              />
-
-              <Text style={s.label}>Senha</Text>
-              <TextInput
-                secureTextEntry
-                autoComplete="password"
-                style={s.input}
-                value={password}
-                onChangeText={(value) => { setPassword(value); setError(null); }}
-                placeholder="Sua senha secreta"
-                placeholderTextColor="#777D92"
-                onSubmitEditing={() => void submit()}
-              />
-
-              <Pressable
-                onPress={() => {
-                  setRecoveryMessage(null);
-                  setRecoveryEmail(email);
-                  setRecoveryOpen(true);
-                }}
-                style={s.recover}
-              >
-                <Text style={s.link}>Esqueci minha senha</Text>
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [
-                  s.button,
-                  pressed && s.buttonPressed,
-                  busy && { opacity: 0.65 },
-                ]}
-                onPress={() => void submit()}
-                disabled={busy}
-              >
-                <Text style={s.buttonText}>
-                  {busy ? 'Entrando na conta…' : 'Entrar na minha conta'}
-                  <Text style={s.arrow}> →</Text>
-                </Text>
-              </Pressable>
-
-              <View style={s.footer}>
-                <Text style={s.footerText}>Ainda não tem conta? </Text>
-                <Pressable onPress={() => router.push('/register')}>
-                  <Text style={s.linkStrong}>Cadastre-se grátis</Text>
-                </Pressable>
-              </View>
-            </Animated.View>
-
-            <Action title="Ler arquivos sem conta" quiet onPress={() => router.replace({ pathname: '/library', params: { offline: '1' } })} />
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-
-      {/* Recovery Modal */}
-      <Modal
-        visible={recoveryOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRecoveryOpen(false)}
-      >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets
-          contentContainerStyle={s.modalBackdrop}
-        >
-          <Animated.View
-            entering={FadeIn.duration(180)}
-            exiting={FadeOut.duration(130)}
-            style={s.recoveryCard}
-          >
-            <Text style={s.title}>Recuperar senha</Text>
-            <Text style={s.caption}>
-              Informe o e-mail da sua conta para receber um link de redefinição.
-            </Text>
-
-            <Text style={s.label}>E-mail</Text>
-            <TextInput
-              style={s.recoveryInput}
-              value={recoveryEmail}
-              onChangeText={(value) => { setRecoveryEmail(value); setRecoveryMessage(null); }}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              placeholder="voce@email.com"
-              placeholderTextColor="#858BA0"
-              returnKeyType="send"
-              onSubmitEditing={() => void recover()}
-            />
-
-            <AuthNotice feedback={recoveryMessage} />
-
-            <Pressable
-              style={[s.button, recoveryBusy && { opacity: 0.65 }]}
-              onPress={() => void recover()}
-              disabled={recoveryBusy}
-            >
-              <Text style={s.buttonText}>
-                {recoveryBusy ? (
-                  <ActivityIndicator color="#211A34" />
-                ) : (
-                  recoveryMessage?.tone === 'success' ? 'Enviar novo link' : 'Enviar link de recuperação'
-                )}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => setRecoveryOpen(false)}
-              style={s.modalClose}
-            >
-              <Text style={s.link}>Voltar para o login</Text>
-            </Pressable>
-          </Animated.View>
-        </ScrollView>
-      </Modal>
-    </ImageBackground>
+    <AccountForm artwork={wallpapers.login} focalPoint={0.5} title="Entrar no Librio">
+      <AuthNotice feedback={error} />
+      <FormField label="E-mail" autoCapitalize="none" keyboardType="email-address" autoComplete="email" value={email}
+        onChangeText={value => { setEmail(value); setError(null); }} placeholder="voce@email.com" />
+      <FormField label="Senha" secureTextEntry autoComplete="password" value={password}
+        onChangeText={value => { setPassword(value); setError(null); }} placeholder="Sua senha secreta" onSubmitEditing={() => void submit()} />
+      <LibraryButton label={busy ? 'Entrando na conta…' : 'Entrar na minha conta'} icon="arrow-right" disabled={busy} onPress={() => void submit()} />
+      <View style={s.links}>
+        <LibraryButton label="Esqueci minha senha" variant="quiet" onPress={() => { setRecoveryMessage(null); setRecoveryEmail(email); setRecoveryOpen(true); }} />
+        <LibraryButton label="Cadastre-se grátis" variant="quiet" onPress={() => router.push('/register')} />
+      </View>
+      <LibraryButton label="Ler arquivos sem conta" icon="folder-open" variant="secondary" onPress={() => router.replace({ pathname: '/library', params: { offline: '1' } })} />
+      <AppSheet title="Recuperar senha" visible={recoveryOpen} onClose={() => setRecoveryOpen(false)}>
+        <Text style={[libraryType.body, { color: colors.secondary }]}>Informe o e-mail da sua conta para receber um link de redefinição.</Text>
+        <FormField label="E-mail de recuperação" autoCapitalize="none" keyboardType="email-address" autoComplete="email" value={recoveryEmail}
+          onChangeText={value => { setRecoveryEmail(value); setRecoveryMessage(null); }} placeholder="voce@email.com" returnKeyType="send" onSubmitEditing={() => void recover()} />
+        <AuthNotice feedback={recoveryMessage} />
+        <LibraryButton label={recoveryBusy ? 'Enviando…' : recoveryMessage?.tone === 'success' ? 'Enviar novo link' : 'Enviar link de recuperação'} icon="mail"
+          disabled={recoveryBusy} onPress={() => void recover()} />
+        <LibraryButton label="Voltar para o login" variant="quiet" onPress={() => setRecoveryOpen(false)} />
+      </AppSheet>
+    </AccountForm>
   );
 }
 
 const s = StyleSheet.create({
-  flex: { flex: 1 },
-  background: { flex: 1, overflow: 'hidden', backgroundColor: palette.background },
-  shade: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(15, 17, 26, 0.65)',
-  },
-  content: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 22,
-    paddingVertical: 38,
-    maxWidth: 480,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  brandBlock: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  logoWrapper: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
-    backgroundColor: 'rgba(167, 139, 250, 0.15)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(167, 139, 250, 0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    shadowColor: palette.violet,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  logoImg: {
-    width: '100%',
-    height: '100%',
-  },
-  brand: {
-    marginTop: 10,
-    color: '#FFFFFF',
-    fontSize: 34,
-    fontWeight: '900',
-    letterSpacing: -1.2,
-  },
-  dot: { color: palette.violet },
-  card: {
-    padding: 24,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: palette.surface,
-    shadowColor: '#000000',
-    shadowOpacity: 0.35,
-    shadowRadius: 24,
-    elevation: 12,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-    marginTop: 6,
-  },
-  caption: {
-    color: '#B8BDCE',
-    fontSize: 13,
-    marginTop: 4,
-    marginBottom: 12,
-  },
-  label: {
-    color: '#E6E4EF',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  input: {
-    minHeight: 48,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    backgroundColor: palette.input,
-    color: '#FFFFFF',
-    fontSize: 14,
-  },
-  recover: {
-    alignSelf: 'flex-end',
-    paddingVertical: 10,
-  },
-  link: {
-    color: '#D2C5FF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  button: {
-    marginTop: 10,
-    minHeight: 50,
-    backgroundColor: palette.violet,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonPressed: {
-    transform: [{ scale: 0.985 }],
-    backgroundColor: palette.violetLight,
-  },
-  buttonText: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#1E192D',
-  },
-  arrow: { fontSize: 16 },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  footerText: {
-    color: '#B8BDCE',
-    fontSize: 12.5,
-  },
-  linkStrong: {
-    color: '#E0D7FF',
-    fontSize: 12.5,
-    fontWeight: '900',
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: palette.background,
-    gap: 8,
-  },
-  splashMascot: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    marginBottom: 8,
-  },
-  sub: {
-    color: palette.muted,
-    fontSize: 13,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(5, 6, 11, 0.78)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  recoveryCard: {
-    width: '100%',
-    maxWidth: 440,
-    alignSelf: 'center',
-    padding: 24,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-    backgroundColor: palette.panel,
-  },
-  recoveryInput: {
-    minHeight: 48,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: palette.input,
-    color: '#FFFFFF',
-    fontSize: 14,
-  },
-  modalClose: {
-    alignItems: 'center',
-    padding: 14,
-  },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  links: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap' },
 });
